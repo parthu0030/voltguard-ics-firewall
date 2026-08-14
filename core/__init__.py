@@ -1,1 +1,0 @@
-# VoltGuard Core Package
