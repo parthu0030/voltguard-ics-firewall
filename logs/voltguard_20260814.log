@@ -1,0 +1,23 @@
+2026-08-14 22:39:52 [INFO    ] [LoggingService] Logging service initialised
+2026-08-14 22:39:52 [INFO    ] [Startup] ======================================================================
+2026-08-14 22:39:52 [INFO    ] [Startup]   VoltGuard v1.0.0 — Application Starting
+2026-08-14 22:39:52 [INFO    ] [Startup]   Timestamp : 2026-08-14T22:39:52.435320
+2026-08-14 22:39:52 [INFO    ] [Startup]   Log file  : /Users/parthspanchal/Clg/Project/voltguard-ics-firewall/logs/voltguard_20260814.log
+2026-08-14 22:39:52 [INFO    ] [Startup] ======================================================================
+2026-08-14 22:40:28 [INFO    ] [LoggingService] Logging service initialised
+2026-08-14 22:42:05 [INFO    ] [LoggingService] Logging service initialised
+2026-08-14 22:42:05 [INFO    ] [Startup] ======================================================================
+2026-08-14 22:42:05 [INFO    ] [Startup]   VoltGuard v1.0.0 — Application Starting
+2026-08-14 22:42:05 [INFO    ] [Startup]   Timestamp : 2026-08-14T22:42:05.697829
+2026-08-14 22:42:05 [INFO    ] [Startup]   Log file  : /Users/parthspanchal/Clg/Project/voltguard-ics-firewall/logs/voltguard_20260814.log
+2026-08-14 22:42:05 [INFO    ] [Startup] ======================================================================
+2026-08-14 22:42:13 [INFO    ] [LoggingService] Logging service initialised
+2026-08-14 22:42:13 [INFO    ] [Startup] ======================================================================
+2026-08-14 22:42:13 [INFO    ] [Startup]   VoltGuard v1.0.0 — Application Starting
+2026-08-14 22:42:13 [INFO    ] [Startup]   Timestamp : 2026-08-14T22:42:13.745417
+2026-08-14 22:42:13 [INFO    ] [Startup]   Log file  : /Users/parthspanchal/Clg/Project/voltguard-ics-firewall/logs/voltguard_20260814.log
+2026-08-14 22:42:13 [INFO    ] [Startup] ======================================================================
+2026-08-14 22:42:13 [INFO    ] [Bootstrap] Database initialised at: /Users/parthspanchal/Clg/Project/voltguard-ics-firewall/voltguard.db
+2026-08-14 22:42:13 [INFO    ] [Bootstrap] Database health check passed.
+2026-08-14 22:42:13 [INFO    ] [Bootstrap] Configuration loaded — theme=dark, interface=lo0
+2026-08-14 22:42:14 [INFO    ] [SettingsPage] Settings saved — theme=dark, interface=lo0, log_level=DEBUG
