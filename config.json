@@ -1,0 +1,13 @@
+{
+  "app_version": "1.0.0",
+  "log_level": "INFO",
+  "selected_interface": "lo0",
+  "theme": "dark",
+  "db_path": "voltguard.db",
+  "physics": {
+    "pressure_max_bar": 10.0,
+    "flow_max_lps": 50.0,
+    "temp_max_celsius": 150.0,
+    "rpm_max": 3600.0
+  }
+}

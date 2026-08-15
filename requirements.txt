@@ -1,0 +1,27 @@
+# VoltGuard — Python Dependencies
+# ==================================
+# Install with:
+#   pip install -r requirements.txt
+#
+# Packages are pinned to minimum compatible versions.
+# Use a virtual environment:
+#   python3 -m venv .venv && source .venv/bin/activate
+
+# ── Core GUI ────────────────────────────────────────────────────────────────
+PyQt6>=6.7.0
+
+# ── Configuration ───────────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+
+# ── Numerical / Physics Simulation ──────────────────────────────────────────
+numpy>=1.26.0
+
+# ── Testing ─────────────────────────────────────────────────────────────────
+pytest>=8.0.0
+
+# ── Optional (install manually when needed) ─────────────────────────────────
+# scipy>=1.12.0          # Physics PDE solvers (Week 2)
+# scapy>=2.5.0           # Live packet capture (Week 1 Day 2)
+# psutil>=5.9.0          # System memory info in startup banner
+# reportlab>=4.0.0       # PDF report export (Week 2)
+# pandas>=2.0.0          # Data manipulation for analytics (Week 2)
