@@ -6,8 +6,26 @@
   "db_path": "voltguard.db",
   "physics": {
     "pressure_max_bar": 10.0,
+    "pressure_min_bar": 0.5,
     "flow_max_lps": 50.0,
     "temp_max_celsius": 150.0,
-    "rpm_max": 3600.0
+    "temp_min_celsius": 5.0,
+    "rpm_max": 3600.0,
+    "tank_max_m3": 100.0,
+    "tank_min_m3": 0.0,
+    "tank_initial_m3": 75.0,
+    "valve_speed_per_sec": 0.05,
+    "simulation_interval_sec": 1.0,
+    "pump_ramp_rate_rpm_per_sec": 300.0,
+    "pump_decay_rate_rpm_per_sec": 150.0,
+    "pressure_ramp_bar_per_rpm": 0.0025,
+    "pressure_decay_rate_bar_per_sec": 0.4,
+    "flow_coefficient": 0.015,
+    "temp_ambient_celsius": 22.0,
+    "temp_rise_rate_celsius_per_sec": 0.08,
+    "temp_cool_rate_celsius_per_sec": 0.05,
+    "tank_drain_factor": 1.0,
+    "tank_fill_rate_m3_per_sec": 2.0,
+    "tank_fill_threshold_m3": 20.0
   }
 }

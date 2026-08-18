@@ -1,15 +1,44 @@
 """
 VoltGuard — Physics Engine Package
 =====================================
-Contains physics simulation engines for industrial process modelling.
+Exports the complete industrial physics simulation stack for VoltGuard.
 
-Week 1 Status: Package scaffold only.
-               Concrete engines will be implemented in Week 1 (Day 2+).
+Day 3 Status: Fully implemented — Water System Simulation Engine.
 
-Planned engines:
-  - ``pump_station.PumpStationEngine``     — Pressure + flow simulation
-  - ``heat_exchanger.HeatExchangerEngine`` — Temperature simulation
-  - ``valve_manifold.ValveManifoldEngine`` — Valve position simulation
+Components
+----------
+- ``WaterSystemEngine``   Core physics engine (pump, valve, pressure, flow, temp, tank)
+- ``SystemState``         Typed snapshot DTO for all process variables
+- ``PhysicsConfig``       Immutable configuration container (loaded from config.json)
+- ``SimulationRunner``    Qt QThread wrapper; emits ``state_updated`` signals per tick
+- ``CommandType``         String constants for engine commands
 
-All engines must implement ``src.interfaces.base_physics.BasePhysicsEngine``.
+Architecture
+------------
+All engines implement ``src.interfaces.base_physics.BasePhysicsEngine``.
+The ``SimulationRunner`` is the entry point for UI integration; the
+engine and state model can also be used standalone in tests and scripts.
+
+Quick Start::
+
+    from src.physics import SimulationRunner
+
+    runner = SimulationRunner()
+    runner.state_updated.connect(my_slot)
+    runner.start_simulation()
+    runner.set_pump(True)
+    runner.set_valve(0.75)
 """
+
+from src.physics.physics_config import PhysicsConfig
+from src.physics.simulation_runner import SimulationRunner
+from src.physics.system_state import SystemState
+from src.physics.water_system_engine import CommandType, WaterSystemEngine
+
+__all__ = [
+    "PhysicsConfig",
+    "SimulationRunner",
+    "SystemState",
+    "CommandType",
+    "WaterSystemEngine",
+]
