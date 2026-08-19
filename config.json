@@ -27,5 +27,16 @@
     "tank_drain_factor": 1.0,
     "tank_fill_rate_m3_per_sec": 2.0,
     "tank_fill_threshold_m3": 20.0
+  },
+  "decision": {
+    "risk_alert_threshold": 40,
+    "risk_block_threshold": 70,
+    "pressure_warning_fraction": 0.80,
+    "pressure_critical_fraction": 0.95,
+    "flow_warning_fraction": 0.80,
+    "temp_warning_fraction": 0.85,
+    "max_registers_per_write": 125,
+    "suspicious_register_min": 0,
+    "suspicious_register_max": 9999
   }
 }
