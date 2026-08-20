@@ -112,7 +112,7 @@ class _PhysStatCard(QFrame):
         # Value
         self._value_label = QLabel(initial_value)
         self._value_label.setStyleSheet(
-            f"color: {accent}; font-size: 28px; font-weight: 700; "
+            f"color: {self._accent}; font-size: 28px; font-weight: 700; "
             f"background: transparent; letter-spacing: -0.5px;"
         )
         self._value_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
