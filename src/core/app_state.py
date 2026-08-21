@@ -35,6 +35,7 @@ class _AppState:
     # ------------------------------------------------------------------ #
     _packets_captured: int = field(default=0, init=False, repr=False)
     _packets_allowed: int = field(default=0, init=False, repr=False)
+    _packets_alerted: int = field(default=0, init=False, repr=False)
     _packets_blocked: int = field(default=0, init=False, repr=False)
 
     # ------------------------------------------------------------------ #
@@ -89,6 +90,11 @@ class _AppState:
         return self._packets_allowed
 
     @property
+    def packets_alerted(self) -> int:
+        """Total packets forwarded with an alert (action = ALERT)."""
+        return self._packets_alerted
+
+    @property
     def packets_blocked(self) -> int:
         """Total packets dropped (action = BLOCK)."""
         return self._packets_blocked
@@ -97,6 +103,13 @@ class _AppState:
         """Record one allowed packet and update captured counter."""
         with self._lock:
             self._packets_allowed += 1
+            self._packets_captured += 1
+            self._notify()
+
+    def increment_alerted(self) -> None:
+        """Record one alerted packet and update captured counter."""
+        with self._lock:
+            self._packets_alerted += 1
             self._packets_captured += 1
             self._notify()
 
@@ -112,6 +125,7 @@ class _AppState:
         with self._lock:
             self._packets_captured = 0
             self._packets_allowed = 0
+            self._packets_alerted = 0
             self._packets_blocked = 0
             self._notify()
 
@@ -168,6 +182,7 @@ class _AppState:
         return {
             "packets_captured": self._packets_captured,
             "packets_allowed": self._packets_allowed,
+            "packets_alerted": self._packets_alerted,
             "packets_blocked": self._packets_blocked,
             "app_status": self._app_status,
             "db_status": self._db_status,

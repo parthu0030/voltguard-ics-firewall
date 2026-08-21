@@ -335,7 +335,7 @@ class TestAppState(unittest.TestCase):
         """snapshot() must return all expected keys."""
         snap = self._state.snapshot()
         expected_keys = {
-            "packets_captured", "packets_allowed", "packets_blocked",
+            "packets_captured", "packets_allowed", "packets_alerted", "packets_blocked",
             "app_status", "db_status", "selected_interface", "system_time",
         }
         self.assertEqual(expected_keys, set(snap.keys()))
