@@ -68,6 +68,10 @@ from src.physics.physics_config import PhysicsConfig
 from src.physics.system_state import SystemState
 from src.physics.water_system_engine import WaterSystemEngine
 from src.pipeline.pipeline_event import PipelineEvent
+from src.policy.enforcement import SimulationEnforcementAdapter
+from src.policy.models import EnforcementResult, PolicyAction
+from src.policy.policy_config import PolicyConfig
+from src.policy.policy_engine import PolicyEngine
 
 _log = get_logger(__name__)
 
@@ -176,6 +180,9 @@ class PacketPipeline:
         self._parser: Optional[ProtocolParser] = None
         self._physics_engine: Optional[WaterSystemEngine] = None
         self._decision_engine: Optional[PhysicsAwareDecisionEngine] = None
+        # ── Day 6: Policy Engine + Enforcement Adapter ───────────────────
+        self._policy_engine: Optional[PolicyEngine] = None
+        self._enforcement_adapter: Optional[SimulationEnforcementAdapter] = None
 
         # ── Runtime state ────────────────────────────────────────────────
         self._running: bool = False
@@ -401,8 +408,11 @@ class PacketPipeline:
         if result is None:
             return
 
+        # ── Step 5b: Policy Engine (Day 6) ─────────────────────────────
+        enforcement = self._enforce_policy(result, packet)
+
         # ── Step 6: Build pipeline event ───────────────────────────────
-        event = PipelineEvent.from_decision(result, packet)
+        event = PipelineEvent.from_decision(result, packet, enforcement)
 
         # ── Step 7: Firewall decision layer (safe simulation only) ─────
         if event.is_blocked:
@@ -480,6 +490,40 @@ class PacketPipeline:
             _log.error("PacketPipeline: decision engine exception: %s", exc)
             with self._stats_lock:
                 self._stats.record_error()
+            return None
+
+    def _enforce_policy(
+        self,
+        result,  # SecurityDecisionResult
+        packet: FullPacket,
+    ) -> Optional[EnforcementResult]:
+        """
+        Run the Day 6 Policy Engine and Enforcement Adapter.
+
+        Extracts port/protocol metadata from the packet and calls
+        ``PolicyEngine.evaluate()``, then dispatches the result to
+        ``SimulationEnforcementAdapter.enforce()``.
+
+        Returns:
+            ``EnforcementResult`` or ``None`` if the policy engine is not
+            configured (pipeline still works without it).
+        """
+        if self._policy_engine is None or self._enforcement_adapter is None:
+            return None
+        try:
+            src_port = packet.tcp.src_port if packet.tcp else 0
+            dst_port = packet.tcp.dst_port if packet.tcp else 0
+            protocol = "Modbus TCP" if packet.modbus is not None else "TCP/IP"
+            enforcement = self._policy_engine.evaluate(
+                result,
+                src_port=src_port,
+                dst_port=dst_port,
+                protocol=protocol,
+            )
+            self._enforcement_adapter.enforce(enforcement)
+            return enforcement
+        except Exception as exc:  # noqa: BLE001
+            _log.error("PacketPipeline: policy engine exception: %s", exc)
             return None
 
     def _handle_parse_failure(self, packet: FullPacket) -> None:
@@ -600,6 +644,25 @@ class PacketPipeline:
             )
             _log.debug("PacketPipeline: PhysicsAwareDecisionEngine initialised.")
 
+        # Day 6: Policy Engine + Enforcement Adapter
+        if self._policy_engine is None:
+            try:
+                policy_cfg = PolicyConfig.from_config(config_loader)
+                self._policy_engine = PolicyEngine(policy_cfg)
+                self._enforcement_adapter = SimulationEnforcementAdapter()
+                _log.debug(
+                    "PacketPipeline: PolicyEngine initialised (%d policies).",
+                    self._policy_engine.enabled_policy_count,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _log.warning(
+                    "PacketPipeline: Policy Engine failed to initialise (%s). "
+                    "Pipeline will run without policy enforcement.",
+                    exc,
+                )
+                self._policy_engine = None
+                self._enforcement_adapter = None
+
     def _create_source(self) -> PacketSource:
         """
         Build the appropriate ``PacketSource`` based on ``self._mode``.
@@ -616,11 +679,16 @@ class PacketPipeline:
     # ------------------------------------------------------------------
 
     def __repr__(self) -> str:
+        policy_info = (
+            f" policies={self._policy_engine.enabled_policy_count}"
+            if self._policy_engine else " policies=N/A"
+        )
         return (
             f"<PacketPipeline "
             f"mode={self._mode.value} "
             f"running={self._running} "
-            f"total={self._stats.total}>"
+            f"total={self._stats.total}"
+            f"{policy_info}>"
         )
 
 

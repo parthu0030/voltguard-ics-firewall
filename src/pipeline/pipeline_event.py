@@ -23,10 +23,13 @@ Design
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from src.decision_engine.models import DecisionType, SecurityDecisionResult, SeverityLevel
 from src.parser.packet_models import FullPacket, ParseStatus
+
+if TYPE_CHECKING:
+    from src.policy.models import EnforcementResult
 
 
 @dataclass
@@ -70,6 +73,13 @@ class PipelineEvent:
     parse_status: str = ParseStatus.VALID.value
     parse_error: str = ""
     is_full_frame: bool = False
+    # ── Day 6: Policy enforcement fields (optional) ──────────────────────
+    # Populated by PacketPipeline after the Policy Engine runs.
+    # None when the Policy Engine has not been configured.
+    policy_id: Optional[str] = None
+    policy_name: Optional[str] = None
+    policy_action: Optional[str] = None       # PolicyAction value: ALLOW/ALERT/BLOCK
+    enforcement_reason: Optional[str] = None  # Human-readable policy reason
 
     # ------------------------------------------------------------------
     # Factory methods
@@ -80,6 +90,7 @@ class PipelineEvent:
         cls,
         result: SecurityDecisionResult,
         packet: FullPacket,
+        enforcement: Optional["EnforcementResult"] = None,
     ) -> "PipelineEvent":
         """
         Construct a ``PipelineEvent`` from a ``SecurityDecisionResult`` and
@@ -99,6 +110,13 @@ class PipelineEvent:
         # Determine protocol label
         protocol = "Modbus TCP" if packet.modbus is not None else "TCP/IP"
 
+        # Use policy action as the effective decision when available
+        effective_decision = (
+            enforcement.final_action.value
+            if enforcement is not None
+            else result.decision.value
+        )
+
         return cls(
             timestamp=result.timestamp,
             source_ip=result.src_ip or packet.src_ip or "unknown",
@@ -108,7 +126,7 @@ class PipelineEvent:
             protocol=protocol,
             modbus_function=result.function_name or "",
             modbus_fc_int=result.function_code,
-            decision=result.decision.value,
+            decision=effective_decision,
             risk_score=result.risk_score,
             risk_level=result.severity.value,
             reason=result.reason,
@@ -116,6 +134,10 @@ class PipelineEvent:
             parse_status=packet.parse_status.value,
             parse_error=packet.error_message,
             is_full_frame=packet.ethernet is not None,
+            policy_id=enforcement.matched_policy_id if enforcement else None,
+            policy_name=enforcement.matched_policy_name if enforcement else None,
+            policy_action=enforcement.final_action.value if enforcement else None,
+            enforcement_reason=enforcement.reason if enforcement else None,
         )
 
     @classmethod
@@ -186,6 +208,11 @@ class PipelineEvent:
             "parse_status":       self.parse_status,
             "parse_error":        self.parse_error,
             "is_full_frame":      self.is_full_frame,
+            # Day 6 policy fields
+            "policy_id":          self.policy_id,
+            "policy_name":        self.policy_name,
+            "policy_action":      self.policy_action,
+            "enforcement_reason": self.enforcement_reason,
         }
 
     # ------------------------------------------------------------------
