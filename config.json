@@ -42,6 +42,15 @@
   "policy_fail_safe": "BLOCK",
   "policies": [
     {
+      "policy_id": "POL-006",
+      "name": "Block Critical Physical Safety Violations",
+      "description": "Block any command that has triggered a CRITICAL risk level from the physics-aware decision engine. This indicates the command would cause a physical safety limit violation (e.g. over-pressure, over-temperature).",
+      "enabled": true,
+      "priority": 5,
+      "action": "BLOCK",
+      "risk_levels": ["CRITICAL"]
+    },
+    {
       "policy_id": "POL-001",
       "name": "Allow Modbus Read Operations",
       "description": "Permit legitimate Modbus read commands (FC 0x01 Read Coils, FC 0x03 Read Holding Registers) to port 502 when risk is low. These are standard polling operations in ICS environments.",
@@ -83,7 +92,8 @@
       "action": "ALERT",
       "dst_port": 502,
       "modbus_function": 16,
-      "risk_min": 40
+      "risk_min": 40,
+      "risk_max": 69
     },
     {
       "policy_id": "POL-005",
@@ -92,16 +102,8 @@
       "enabled": true,
       "priority": 40,
       "action": "ALERT",
-      "risk_levels": ["MEDIUM", "HIGH"]
-    },
-    {
-      "policy_id": "POL-006",
-      "name": "Block Critical Physical Safety Violations",
-      "description": "Block any command that has triggered a CRITICAL risk level from the physics-aware decision engine. This indicates the command would cause a physical safety limit violation (e.g. over-pressure, over-temperature).",
-      "enabled": true,
-      "priority": 50,
-      "action": "BLOCK",
-      "risk_levels": ["CRITICAL"]
+      "risk_levels": ["MEDIUM", "HIGH"],
+      "risk_max": 69
     },
     {
       "policy_id": "POL-007",

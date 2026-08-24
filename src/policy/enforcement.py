@@ -10,15 +10,15 @@ Architecture:
   ``SimulationEnforcementAdapter`` (concrete — safe, no OS changes)
 
 Design constraints:
-  - ``SimulationEnforcementAdapter`` NEVER executes OS-level commands.
-  - It does NOT call ``iptables``, ``pfctl``, ``nftables``, ``subprocess``,
-    or any route/interface manipulation commands.
+  - ``SimulationEnforcementAdapter`` NEVER executes host-level commands.
+  - It does NOT modify system network configuration, routing tables,
+    or host packet filter rules.
   - ALLOW → log INFO  + mark result allowed.
   - ALERT → log WARN  + mark result allowed + generate audit entry.
   - BLOCK → log ERROR + mark result blocked.  Packet goes no further
     through the simulated pipeline.
-  - The ABC makes it straightforward to add a ``RealFirewallAdapter`` in
-    the future without changing the rest of the pipeline.
+  - The ABC makes it straightforward to add a concrete hardware or
+    production adapter in the future without changing the rest of the pipeline.
 
 Audit logging:
   - Every enforcement decision is logged via the existing rotating logger.
@@ -92,8 +92,8 @@ class EnforcementAdapter(ABC):
     without duplicating policy logic — actions are determined by the
     ``PolicyEngine`` and simply *executed* by the adapter.
 
-    This abstraction means a real firewall adapter (e.g. ``PfctlAdapter``)
-    can be added in the future without touching the pipeline or policy engine.
+    This abstraction means a real device adapter can be added in the future
+    without touching the pipeline or policy engine.
     """
 
     @abstractmethod
@@ -136,12 +136,9 @@ class SimulationEnforcementAdapter(EnforcementAdapter):
       - **BLOCK**: Logs an ERROR-level message.  Packet is conceptually dropped
                    and should not continue through the pipeline.
 
-    **Safety guarantee**: This class never calls ``subprocess``, ``os.system``,
-    or any OS-level command.  It is safe to run in a test environment, CI,
-    or on a production host without risk of modifying real firewall rules.
-
-    The future ``RealFirewallAdapter`` would subclass ``EnforcementAdapter``
-    independently and could use ``subprocess`` under explicit operator consent.
+    **Safety guarantee**: This class never executes external host commands.
+    It is safe to run in a test environment, CI, or on a production host
+    without risk of modifying real firewall rules.
     """
 
     # Sentinel used to verify in tests that no OS commands are ever called.

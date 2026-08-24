@@ -44,9 +44,18 @@ _log = logging.getLogger("VoltGuard.policy.policy_config")
 
 _DEFAULT_POLICIES: list[dict[str, Any]] = [
     {
+        "policy_id":   "POL-006",
+        "name":        "Block Critical Physical Safety Violations",
+        "description": "Block any command that has triggered a CRITICAL risk level from the physics-aware decision engine. This indicates the command would cause a physical safety limit violation (e.g. over-pressure, over-temperature).",
+        "enabled":     True,
+        "priority":    5,
+        "action":      "BLOCK",
+        "risk_levels": ["CRITICAL"],
+    },
+    {
         "policy_id":   "POL-001",
         "name":        "Allow Modbus Read Operations",
-        "description": "Permit legitimate Modbus read commands (FC 0x01, 0x03) to port 502 when risk is low.",
+        "description": "Permit legitimate Modbus read commands (FC 0x01 Read Coils, FC 0x03 Read Holding Registers) to port 502 when risk is low. These are standard polling operations in ICS environments.",
         "enabled":     True,
         "priority":    10,
         "action":      "ALLOW",
@@ -57,7 +66,7 @@ _DEFAULT_POLICIES: list[dict[str, Any]] = [
     {
         "policy_id":   "POL-002",
         "name":        "Allow Safe Single-Register Writes",
-        "description": "Permit Write Single Register (FC 0x06) commands when risk score is low.",
+        "description": "Permit Write Single Register (FC 0x06) commands when risk score is low. Single-register writes to known safe register ranges are routine ICS control operations.",
         "enabled":     True,
         "priority":    20,
         "action":      "ALLOW",
@@ -68,7 +77,7 @@ _DEFAULT_POLICIES: list[dict[str, Any]] = [
     {
         "policy_id":   "POL-003",
         "name":        "Allow Safe Single-Coil Writes",
-        "description": "Permit Write Single Coil (FC 0x05) commands when risk score is low.",
+        "description": "Permit Write Single Coil (FC 0x05) commands when risk score is low. Single-coil writes are used for discrete output control in ICS environments.",
         "enabled":     True,
         "priority":    25,
         "action":      "ALLOW",
@@ -79,36 +88,29 @@ _DEFAULT_POLICIES: list[dict[str, Any]] = [
     {
         "policy_id":   "POL-004",
         "name":        "Alert on Write Multiple Registers",
-        "description": "Generate an alert for Write Multiple Registers (FC 0x10) — may affect multiple process variables simultaneously.",
+        "description": "Generate a security alert for Write Multiple Registers (FC 0x10) commands with elevated risk. This operation can change multiple process variables simultaneously and warrants monitoring.",
         "enabled":     True,
         "priority":    30,
         "action":      "ALERT",
         "dst_port":    502,
         "modbus_function": 16,
         "risk_min":    40,
+        "risk_max":    69,
     },
     {
         "policy_id":   "POL-005",
-        "name":        "Alert on Medium Risk Traffic",
-        "description": "Alert on any traffic with MEDIUM or HIGH risk level that has not been matched by a more specific policy.",
+        "name":        "Alert on Medium and High Risk Traffic",
+        "description": "Alert on any Modbus traffic with MEDIUM or HIGH risk level that has not been handled by a more specific policy. Allows operator review without automatically blocking.",
         "enabled":     True,
         "priority":    40,
         "action":      "ALERT",
         "risk_levels": ["MEDIUM", "HIGH"],
-    },
-    {
-        "policy_id":   "POL-006",
-        "name":        "Block Critical Safety Violations",
-        "description": "Block any command that triggers a CRITICAL risk level — indicates a physical safety limit violation.",
-        "enabled":     True,
-        "priority":    50,
-        "action":      "BLOCK",
-        "risk_levels": ["CRITICAL"],
+        "risk_max":    69,
     },
     {
         "policy_id":   "POL-007",
-        "name":        "Block High-Score Unmatched Traffic",
-        "description": "Block traffic with risk score ≥ 70 that has not been matched by a more specific policy.",
+        "name":        "Block High Risk Score Traffic",
+        "description": "Block traffic with a risk score at or above the block threshold (70) that has not been matched by a more specific policy. Acts as a safety net for unclassified high-risk traffic.",
         "enabled":     True,
         "priority":    60,
         "action":      "BLOCK",
@@ -116,8 +118,8 @@ _DEFAULT_POLICIES: list[dict[str, Any]] = [
     },
     {
         "policy_id":   "POL-DEFAULT",
-        "name":        "Default Allow Low Risk",
-        "description": "Permit any traffic with risk score below the alert threshold — catch-all safe traffic pass-through.",
+        "name":        "Default Allow Low Risk Traffic",
+        "description": "Permit any traffic with a risk score below the alert threshold. This catch-all policy ensures routine, safe ICS communications pass through without unnecessary friction.",
         "enabled":     True,
         "priority":    100,
         "action":      "ALLOW",
@@ -126,7 +128,7 @@ _DEFAULT_POLICIES: list[dict[str, Any]] = [
     {
         "policy_id":   "POL-FALLBACK",
         "name":        "Fallback Block Unknown High Risk",
-        "description": "Final safety net — block anything not matched by a higher-priority policy with an elevated risk score.",
+        "description": "Final safety net policy. Block any traffic not explicitly matched by a higher-priority policy that has an elevated risk score. Ensures the system fails safely when traffic does not match known patterns.",
         "enabled":     True,
         "priority":    200,
         "action":      "BLOCK",
@@ -156,6 +158,14 @@ class PolicyConfig:
     """
     policies: list[FirewallPolicy] = field(default_factory=list)
     fail_safe_action: PolicyAction = PolicyAction.BLOCK
+
+    def __post_init__(self) -> None:
+        """Ensure policies are always sorted by (priority, policy_id)."""
+        self.sort_policies()
+
+    def sort_policies(self) -> None:
+        """Sort policies ascending by (priority, policy_id) for deterministic evaluation."""
+        self.policies.sort(key=lambda p: (p.priority, p.policy_id))
 
     # ------------------------------------------------------------------
     # Factory
@@ -254,7 +264,7 @@ class PolicyConfig:
     @property
     def enabled_policies(self) -> list[FirewallPolicy]:
         """Return only enabled policies, sorted by (priority, policy_id)."""
-        return [p for p in self.policies if p.enabled]
+        return sorted([p for p in self.policies if p.enabled], key=lambda p: (p.priority, p.policy_id))
 
     def get_policy(self, policy_id: str) -> "FirewallPolicy | None":
         """Return the policy with the given ID, or None if not found."""
