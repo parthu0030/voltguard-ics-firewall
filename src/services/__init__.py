@@ -1,1 +1,1 @@
-"""VoltGuard Services — Reusable singleton services (Database, Config, Logging, Theme)."""
+"""VoltGuard Services — Reusable singleton services (Database, Config, Logging, Theme, Alert)."""

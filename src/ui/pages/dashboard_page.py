@@ -24,20 +24,28 @@ Architecture:
 
 from __future__ import annotations
 
+from typing import Optional
+
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from src.core.app_state import app_state
+from src.models.app_models import AlertSeverity
+from src.services.alert_manager import alert_manager
 from src.services.config_service import config_service
 from src.services.theme_service import theme_service
 
@@ -100,7 +108,7 @@ class _StatCard(QFrame):
         self._value_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self._value_label)
 
-    def _apply_card_style(self) -> None:
+    def _apply_card_style() -> None:
         """Apply the card's background and border stylesheet."""
         self.setStyleSheet(
             """
@@ -148,8 +156,8 @@ class DashboardPage(QWidget):
     """
     Dashboard page widget for VoltGuard.
 
-    Displays a 4×2 grid of live status cards and a section header.
-    A one-second QTimer drives the refresh cycle.
+    Displays an expanded grid of live status cards, security alert summaries,
+    and a real-time security events table.
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -192,6 +200,9 @@ class DashboardPage(QWidget):
 
         # ---- Status cards grid ----------------------------------------- #
         layout.addWidget(self._build_cards_grid())
+
+        # ---- Recent Security Alerts section ----------------------------- #
+        layout.addWidget(self._build_alerts_section())
         layout.addStretch()
 
     def _build_header(self) -> QWidget:
@@ -208,7 +219,7 @@ class DashboardPage(QWidget):
         )
         h_layout.addWidget(title)
 
-        subtitle = QLabel("Live system overview — all values refresh every second.")
+        subtitle = QLabel("Live ICS/SCADA security posture and real-time alert monitoring.")
         subtitle.setStyleSheet(
             "font-size: 13px; color: #8B949E; background: transparent;"
         )
@@ -217,7 +228,7 @@ class DashboardPage(QWidget):
         return header
 
     def _build_cards_grid(self) -> QWidget:
-        """Build the 4×2 grid of status cards."""
+        """Build the grid of status cards."""
         grid_widget = QWidget()
         grid_widget.setStyleSheet("background: transparent;")
         grid = QGridLayout(grid_widget)
@@ -226,14 +237,14 @@ class DashboardPage(QWidget):
 
         # Card definitions: (key, title, icon, initial_value, accent)
         card_defs = [
-            ("app_status",  "Application Status",      "🛡",  "Idle",    "#58A6FF"),
-            ("db_status",   "Database Status",          "🗄",  "—",       "#3FB950"),
-            ("interface",   "Network Interface",        "🌐",  "—",       "#D29922"),
-            ("captured",    "Packets Captured",         "📡",  "0",       "#BC8CFF"),
-            ("allowed",     "Allowed Packets",          "✅",  "0",       "#3FB950"),
-            ("blocked",     "Blocked Packets",          "🚫",  "0",       "#F85149"),
-            ("time",        "System Time",              "🕐",  "—",       "#58A6FF"),
-            ("version",     "Application Version",     "📦",  "—",       "#8B949E"),
+            ("app_status",     "Application Status",       "🛡",  "Idle",    "#58A6FF"),
+            ("db_status",      "Database Status",           "🗄",  "—",       "#3FB950"),
+            ("captured",       "Packets Captured",          "📡",  "0",       "#BC8CFF"),
+            ("allowed",        "Allowed Packets",           "✅",  "0",       "#3FB950"),
+            ("blocked",        "Blocked Packets",           "🚫",  "0",       "#F85149"),
+            ("unack_alerts",   "Active Alerts",             "⚠️",  "0",       "#F0883E"),
+            ("crit_alerts",    "Critical Violations",       "🚨",  "0",       "#FF7B72"),
+            ("time",           "System Time",               "🕐",  "—",       "#58A6FF"),
         ]
 
         for idx, (key, title, icon, value, colour) in enumerate(card_defs):
@@ -247,6 +258,98 @@ class DashboardPage(QWidget):
             grid.setColumnStretch(col, 1)
 
         return grid_widget
+
+    def _build_alerts_section(self) -> QWidget:
+        """Build the recent security alerts panel."""
+        panel = QFrame()
+        panel.setStyleSheet(
+            """
+            QFrame {
+                background-color: #161B22;
+                border: 1px solid #30363D;
+                border-radius: 10px;
+                padding: 16px;
+            }
+            """
+        )
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        # Section Header
+        hdr = QHBoxLayout()
+        title = QLabel("Recent Security Alerts & Incidents")
+        title.setStyleSheet("font-size: 15px; font-weight: 700; color: #E6EDF3; border: none;")
+        hdr.addWidget(title)
+        hdr.addStretch()
+
+        self._ack_all_btn = QPushButton("Acknowledge All")
+        self._ack_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ack_all_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #21262D;
+                color: #C9D1D9;
+                border: 1px solid #30363D;
+                border-radius: 6px;
+                padding: 5px 12px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #30363D;
+                color: #58A6FF;
+            }
+            """
+        )
+        self._ack_all_btn.clicked.connect(self._on_ack_all_clicked)
+        hdr.addWidget(self._ack_all_btn)
+        layout.addLayout(hdr)
+
+        # Table for alerts
+        self._alerts_table = QTableWidget()
+        self._alerts_table.setColumnCount(6)
+        self._alerts_table.setHorizontalHeaderLabels([
+            "Time", "Severity", "Action", "Source → Dest", "Description", "Status"
+        ])
+        self._alerts_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self._alerts_table.horizontalHeader().setDefaultSectionSize(110)
+        self._alerts_table.verticalHeader().setVisible(False)
+        self._alerts_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._alerts_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._alerts_table.setMinimumHeight(180)
+        self._alerts_table.setStyleSheet(
+            """
+            QTableWidget {
+                background-color: #0D1117;
+                color: #C9D1D9;
+                gridline-color: #21262D;
+                border: 1px solid #30363D;
+                border-radius: 6px;
+                font-size: 12px;
+            }
+            QHeaderView::section {
+                background-color: #161B22;
+                color: #8B949E;
+                font-weight: 600;
+                font-size: 11px;
+                border: none;
+                border-bottom: 1px solid #30363D;
+                padding: 6px;
+            }
+            """
+        )
+        layout.addWidget(self._alerts_table)
+
+        return panel
+
+    def _on_ack_all_clicked(self) -> None:
+        """Handler for Acknowledge All button."""
+        try:
+            alert_manager.acknowledge_all_alerts()
+            self._refresh()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ #
     #  Signals & Timer                                                     #
@@ -263,7 +366,7 @@ class DashboardPage(QWidget):
     # ------------------------------------------------------------------ #
 
     def _refresh(self) -> None:
-        """Pull current values from services and update all cards."""
+        """Pull current values from services and update all cards and tables."""
         state = app_state.snapshot()
 
         # App status
@@ -280,23 +383,64 @@ class DashboardPage(QWidget):
             theme_service.get_status_colour(db_status_str)
         )
 
-        # Network interface
-        self._cards["interface"].set_value(
-            config_service.get("selected_interface", "—")
-        )
-
         # Packet counters
         self._cards["captured"].set_value(str(state["packets_captured"]))
         self._cards["allowed"].set_value(str(state["packets_allowed"]))
         self._cards["blocked"].set_value(str(state["packets_blocked"]))
 
+        # Alerts summary
+        try:
+            unack_count = alert_manager.get_unacknowledged_count()
+            self._cards["unack_alerts"].set_value(str(unack_count))
+            self._cards["crit_alerts"].set_value(str(app_state.critical_alerts))
+        except Exception:
+            self._cards["unack_alerts"].set_value("0")
+            self._cards["crit_alerts"].set_value("0")
+
         # System time
         self._cards["time"].set_value(state["system_time"])
 
-        # Version
-        self._cards["version"].set_value(
-            f"v{config_service.get('app_version', '1.0.0')}"
-        )
+        # Populate Alerts Table
+        try:
+            alerts = alert_manager.get_recent_alerts(limit=5)
+            self._alerts_table.setRowCount(len(alerts))
+            for row_idx, alert in enumerate(alerts):
+                # Time
+                time_item = QTableWidgetItem(alert.timestamp.split("T")[-1] if "T" in alert.timestamp else alert.timestamp)
+                self._alerts_table.setItem(row_idx, 0, time_item)
+
+                # Severity
+                sev_item = QTableWidgetItem(alert.severity.value)
+                sev_color = {
+                    AlertSeverity.CRITICAL: "#FF7B72",
+                    AlertSeverity.HIGH: "#F85149",
+                    AlertSeverity.MEDIUM: "#F0883E",
+                    AlertSeverity.LOW: "#58A6FF",
+                }.get(alert.severity, "#C9D1D9")
+                sev_item.setForeground(QColor(sev_color))
+                self._alerts_table.setItem(row_idx, 1, sev_item)
+
+                # Action
+                act_item = QTableWidgetItem(alert.action or "ALERT")
+                act_color = "#F85149" if alert.action == "BLOCK" else "#F0883E"
+                act_item.setForeground(QColor(act_color))
+                self._alerts_table.setItem(row_idx, 2, act_item)
+
+                # Endpoints
+                ep_text = f"{alert.source_ip} → {alert.destination_ip}" if alert.source_ip else "—"
+                self._alerts_table.setItem(row_idx, 3, QTableWidgetItem(ep_text))
+
+                # Message
+                rep = f" (×{alert.repeat_count})" if alert.repeat_count > 1 else ""
+                self._alerts_table.setItem(row_idx, 4, QTableWidgetItem(f"{alert.message}{rep}"))
+
+                # Status
+                status_text = "Acknowledged" if alert.acknowledged else "Active"
+                status_item = QTableWidgetItem(status_text)
+                status_item.setForeground(QColor("#8B949E" if alert.acknowledged else "#F0883E"))
+                self._alerts_table.setItem(row_idx, 5, status_item)
+        except Exception:
+            pass
 
     def stop_timer(self) -> None:
         """Stop the refresh timer. Call this when the page is hidden."""

@@ -72,11 +72,46 @@ CREATE TABLE IF NOT EXISTS event_logs (
 );
 """
 
+_CREATE_SECURITY_EVENTS = """
+CREATE TABLE IF NOT EXISTS security_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id            TEXT    NOT NULL UNIQUE,
+    timestamp           TEXT    NOT NULL,
+    source_ip           TEXT,
+    destination_ip      TEXT,
+    source_port         INTEGER DEFAULT 0,
+    destination_port    INTEGER DEFAULT 0,
+    protocol            TEXT,
+    function_code       INTEGER,
+    function_name       TEXT,
+    risk_score          INTEGER DEFAULT 0,
+    risk_level          TEXT,
+    original_decision   TEXT,
+    matched_policy_id   TEXT,
+    matched_policy_name TEXT,
+    policy_priority     INTEGER,
+    final_action        TEXT,
+    reason              TEXT,
+    event_type          TEXT,
+    severity            TEXT    CHECK(severity IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
+    acknowledged        INTEGER DEFAULT 0
+);
+"""
+
+_CREATE_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_security_events_ts ON security_events(timestamp);",
+    "CREATE INDEX IF NOT EXISTS idx_security_events_sev ON security_events(severity);",
+    "CREATE INDEX IF NOT EXISTS idx_security_events_action ON security_events(final_action);",
+    "CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(timestamp);",
+    "CREATE INDEX IF NOT EXISTS idx_alerts_ack ON alerts(acknowledged);",
+]
+
 _ALL_TABLES: list[str] = [
     _CREATE_PACKET_LOGS,
     _CREATE_ALERTS,
     _CREATE_APPLICATION_SETTINGS,
     _CREATE_EVENT_LOGS,
+    _CREATE_SECURITY_EVENTS,
 ]
 
 
@@ -129,10 +164,35 @@ class DatabaseManager:
         self._initialized = True
 
     def _run_migrations(self) -> None:
-        """Execute all CREATE TABLE IF NOT EXISTS statements."""
+        """Execute all CREATE TABLE and migration statements."""
         cursor = self._connection.cursor()
         for ddl in _ALL_TABLES:
             cursor.execute(ddl)
+
+        # Ensure alerts table has new optional columns if it was created in Day 1
+        cursor.execute("PRAGMA table_info(alerts);")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+        optional_cols = [
+            ("source_ip", "TEXT DEFAULT ''"),
+            ("destination_ip", "TEXT DEFAULT ''"),
+            ("protocol", "TEXT DEFAULT ''"),
+            ("function_code", "INTEGER"),
+            ("action", "TEXT DEFAULT ''"),
+            ("risk_score", "INTEGER DEFAULT 0"),
+            ("policy_id", "TEXT"),
+            ("event_id", "TEXT"),
+            ("repeat_count", "INTEGER DEFAULT 1"),
+        ]
+        for col_name, col_def in optional_cols:
+            if col_name not in existing_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE alerts ADD COLUMN {col_name} {col_def};")
+                except sqlite3.OperationalError:
+                    pass
+
+        for idx_sql in _CREATE_INDEXES:
+            cursor.execute(idx_sql)
+
         self._connection.commit()
 
     def close(self) -> None:

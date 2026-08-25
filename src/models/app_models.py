@@ -9,9 +9,9 @@ They serve as the Model layer in the MVC architecture.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -73,31 +73,93 @@ class PacketLog:
     @staticmethod
     def now_timestamp() -> str:
         """Return the current UTC time as an ISO-8601 string."""
-        return datetime.utcnow().isoformat(timespec="seconds")
+        return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
 
 
 @dataclass
 class Alert:
     """
-    Represents a security alert raised by the detection engine.
+    Represents a security alert raised by the detection/policy engine.
 
     Attributes:
-        id:           Auto-assigned database row ID.
-        timestamp:    ISO-8601 datetime string.
-        severity:     Alert severity level.
-        message:      Human-readable alert description.
-        acknowledged: True if an operator has dismissed/acknowledged it.
+        id:             Auto-assigned database row ID.
+        timestamp:      ISO-8601 datetime string.
+        severity:       Alert severity level.
+        message:        Human-readable alert description.
+        acknowledged:   True if an operator has dismissed/acknowledged it.
+        source_ip:      Source IP address if applicable.
+        destination_ip: Destination IP address if applicable.
+        protocol:       Protocol label.
+        function_code:  Modbus function code integer if applicable.
+        action:         Enforcement action string ('ALLOW', 'ALERT', 'BLOCK').
+        risk_score:     Risk score (0-100).
+        policy_id:      Matched policy identifier.
+        event_id:       Associated SecurityEvent UUID string.
+        repeat_count:   Deduplication occurrence counter.
     """
     timestamp: str
     severity: AlertSeverity
     message: str
     acknowledged: bool = False
+    source_ip: str = ""
+    destination_ip: str = ""
+    protocol: str = ""
+    function_code: Optional[int] = None
+    action: str = ""
+    risk_score: int = 0
+    policy_id: Optional[str] = None
+    event_id: Optional[str] = None
+    repeat_count: int = 1
     id: Optional[int] = None
 
     @staticmethod
     def now_timestamp() -> str:
         """Return the current UTC time as an ISO-8601 string."""
-        return datetime.utcnow().isoformat(timespec="seconds")
+        return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialise to dictionary."""
+        return {
+            "id": self.id,
+            "timestamp": self.timestamp,
+            "severity": self.severity.value,
+            "message": self.message,
+            "acknowledged": self.acknowledged,
+            "source_ip": self.source_ip,
+            "destination_ip": self.destination_ip,
+            "protocol": self.protocol,
+            "function_code": self.function_code,
+            "action": self.action,
+            "risk_score": self.risk_score,
+            "policy_id": self.policy_id,
+            "event_id": self.event_id,
+            "repeat_count": self.repeat_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Alert:
+        """Construct from dictionary."""
+        sev_val = data.get("severity", "LOW")
+        try:
+            severity = AlertSeverity(sev_val)
+        except ValueError:
+            severity = AlertSeverity.LOW
+        return cls(
+            id=data.get("id"),
+            timestamp=str(data.get("timestamp", Alert.now_timestamp())),
+            severity=severity,
+            message=str(data.get("message", "")),
+            acknowledged=bool(data.get("acknowledged", False)),
+            source_ip=str(data.get("source_ip", "")),
+            destination_ip=str(data.get("destination_ip", "")),
+            protocol=str(data.get("protocol", "")),
+            function_code=data.get("function_code"),
+            action=str(data.get("action", "")),
+            risk_score=int(data.get("risk_score", 0)),
+            policy_id=data.get("policy_id"),
+            event_id=data.get("event_id"),
+            repeat_count=int(data.get("repeat_count", 1)),
+        )
 
 
 @dataclass
@@ -119,7 +181,7 @@ class ApplicationSetting:
     @staticmethod
     def now_timestamp() -> str:
         """Return the current UTC time as an ISO-8601 string."""
-        return datetime.utcnow().isoformat(timespec="seconds")
+        return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
 
 
 @dataclass
@@ -143,7 +205,7 @@ class EventLog:
     @staticmethod
     def now_timestamp() -> str:
         """Return the current UTC time as an ISO-8601 string."""
-        return datetime.utcnow().isoformat(timespec="seconds")
+        return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
 
 
 # ---------------------------------------------------------------------------

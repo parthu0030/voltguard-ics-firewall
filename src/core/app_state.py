@@ -31,12 +31,13 @@ class _AppState:
     """
 
     # ------------------------------------------------------------------ #
-    #  Packet counters                                                     #
+    #  Packet & Alert counters                                             #
     # ------------------------------------------------------------------ #
     _packets_captured: int = field(default=0, init=False, repr=False)
     _packets_allowed: int = field(default=0, init=False, repr=False)
     _packets_alerted: int = field(default=0, init=False, repr=False)
     _packets_blocked: int = field(default=0, init=False, repr=False)
+    _critical_alerts: int = field(default=0, init=False, repr=False)
 
     # ------------------------------------------------------------------ #
     #  Status strings                                                      #
@@ -76,7 +77,7 @@ class _AppState:
                 pass  # Never crash the state manager due to a bad callback.
 
     # ------------------------------------------------------------------ #
-    #  Packet counter accessors                                            #
+    #  Packet & Alert counter accessors                                    #
     # ------------------------------------------------------------------ #
 
     @property
@@ -99,6 +100,11 @@ class _AppState:
         """Total packets dropped (action = BLOCK)."""
         return self._packets_blocked
 
+    @property
+    def critical_alerts(self) -> int:
+        """Total critical safety violations / alerts detected."""
+        return self._critical_alerts
+
     def increment_allowed(self) -> None:
         """Record one allowed packet and update captured counter."""
         with self._lock:
@@ -120,6 +126,12 @@ class _AppState:
             self._packets_captured += 1
             self._notify()
 
+    def increment_critical(self) -> None:
+        """Record one critical violation."""
+        with self._lock:
+            self._critical_alerts += 1
+            self._notify()
+
     def reset_counters(self) -> None:
         """Reset all packet counters to zero."""
         with self._lock:
@@ -127,6 +139,7 @@ class _AppState:
             self._packets_allowed = 0
             self._packets_alerted = 0
             self._packets_blocked = 0
+            self._critical_alerts = 0
             self._notify()
 
     # ------------------------------------------------------------------ #

@@ -72,6 +72,7 @@ from src.policy.enforcement import SimulationEnforcementAdapter
 from src.policy.models import EnforcementResult, PolicyAction
 from src.policy.policy_config import PolicyConfig
 from src.policy.policy_engine import PolicyEngine
+from src.services.alert_manager import alert_manager
 
 _log = get_logger(__name__)
 
@@ -564,6 +565,12 @@ class PacketPipeline:
         # ── Update AppState (for dashboard display) ────────────────────
         self._update_app_state(event)
 
+        # ── Day 7: Process Security Event & Alert Generation ──────────
+        try:
+            alert_manager.process_pipeline_event(event)
+        except Exception as exc:  # noqa: BLE001
+            _log.debug("PacketPipeline: alert_manager processing exception: %s", exc)
+
         # ── Log the event ─────────────────────────────────────────────
         _log.info(
             "PipelineEvent: %s→%s FC=%r decision=%s risk=%d level=%s",
@@ -602,6 +609,9 @@ class PacketPipeline:
                 app_state.increment_alerted()
             else:
                 app_state.increment_allowed()
+
+            if (event.risk_level or "").upper() == "CRITICAL":
+                app_state.increment_critical()
         except Exception as exc:  # noqa: BLE001
             _log.warning("PacketPipeline: app_state update error: %s", exc)
 

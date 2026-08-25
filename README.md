@@ -238,11 +238,24 @@ VoltGuardError (base)
 
 ## Week 1 Roadmap
 
-- **Day 1** ✅ Application foundation (this milestone)
-- **Day 2** Modbus TCP packet generator + parser
-- **Day 3** Basic physics engine (pressure, flow, temperature)
-- **Day 4** Rule-based decision engine
-- **Day 5** Integration + end-to-end pipeline test
+- **Day 1** ✅ Application foundation
+- **Day 2** ✅ Modbus TCP protocol parser & generators
+- **Day 3** ✅ Physics simulation engine
+- **Day 4** ✅ Physics-aware decision engine
+- **Day 5** ✅ Real-time packet security pipeline
+- **Day 6** ✅ Deterministic firewall policy engine & simulation adapter
+- **Day 7** ✅ Security event & alert management (deduplication & persistence)
+
+---
+
+## Day 7: Security Event & Alert Management
+
+VoltGuard Day 7 introduces structured security event generation and real-time alert lifecycle management:
+
+- **Security Event**: Canonical audit record combining network metadata, physics verification, risk scoring, winning firewall policy, and enforcement action.
+- **Alert Generation**: Automatically triggers structured security alerts for `ALERT` and `BLOCK` policy enforcement decisions, with explicit prioritization for `CRITICAL` physical safety violations.
+- **Sliding-Window Deduplication**: Deterministic fingerprinting collapses repeated identical security alerts occurring within a configurable window (default 10s), preventing alert storms while tracking occurrence counts.
+- **SQLite Persistence & Queries**: Full CRUD, severity/action filtering, and acknowledgement lifecycle tracking surviving application restarts.
 
 ---
 
