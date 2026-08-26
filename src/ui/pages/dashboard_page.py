@@ -108,7 +108,7 @@ class _StatCard(QFrame):
         self._value_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self._value_label)
 
-    def _apply_card_style() -> None:
+    def _apply_card_style(self) -> None:
         """Apply the card's background and border stylesheet."""
         self.setStyleSheet(
             """

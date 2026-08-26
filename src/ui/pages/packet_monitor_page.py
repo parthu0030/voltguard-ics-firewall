@@ -59,6 +59,42 @@ def _decision_colour(decision: str) -> str:
     return _COLOUR_SKIP
 
 
+def _build_page_header(icon: str, title: str, description: str) -> QWidget:
+    """Build the shared header used by the placeholder pages."""
+    widget = QWidget()
+    layout = QVBoxLayout(widget)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(6)
+
+    heading = QLabel(f"{icon}  {title}")
+    heading.setStyleSheet(
+        "font-size: 24px; font-weight: 700; color: #E6EDF3; background: transparent;"
+    )
+    layout.addWidget(heading)
+
+    detail = QLabel(description)
+    detail.setWordWrap(True)
+    detail.setStyleSheet("font-size: 13px; color: #8B949E; background: transparent;")
+    layout.addWidget(detail)
+    return widget
+
+
+def _build_feature_list(features: list[str]) -> QWidget:
+    """Build the shared feature list used by the placeholder pages."""
+    frame = QFrame()
+    frame.setStyleSheet(
+        "QFrame { background: #161B22; border: 1px solid #30363D; border-radius: 8px; }"
+    )
+    layout = QVBoxLayout(frame)
+    layout.setContentsMargins(18, 14, 18, 14)
+    layout.setSpacing(8)
+    for feature in features:
+        item = QLabel(f"•  {feature}")
+        item.setStyleSheet("font-size: 13px; color: #C9D1D9; background: transparent;")
+        layout.addWidget(item)
+    return frame
+
+
 class PacketMonitorPage(QWidget):
     """
     Live packet monitor page — Day 5 implementation.
@@ -432,7 +468,7 @@ class PacketMonitorPage(QWidget):
                 self._pipeline.clear_events()
             except Exception:
                 pass
-        self._clear_event_rows()
+        self._clear_event_rows(show_empty=True)
         app_state.reset_counters()
         self._update_counters()
 
@@ -471,14 +507,21 @@ class PacketMonitorPage(QWidget):
             row = self._build_event_row(evt)
             self._event_layout.insertWidget(0, row)
 
-    def _clear_event_rows(self) -> None:
-        """Remove all event rows from the layout (keeps the stretch)."""
+    def _clear_event_rows(self, show_empty: bool = False) -> None:
+        """Remove event rows and optionally restore the empty-state message."""
         while self._event_layout.count() > 1:
             item = self._event_layout.takeAt(0)
             if item and item.widget():
                 item.widget().deleteLater()
 
-        if self._empty_label is not None:
+        self._empty_label = None
+        if show_empty:
+            self._empty_label = QLabel(
+                "  No events yet — start the simulation to capture packets."
+            )
+            self._empty_label.setStyleSheet(
+                "font-size: 12px; color: #8B949E; background: transparent; padding: 16px;"
+            )
             self._event_layout.insertWidget(0, self._empty_label)
 
     def _build_event_row(self, evt) -> QWidget:

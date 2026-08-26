@@ -586,4 +586,5 @@ QProgressBar::chunk {{
 # ---------------------------------------------------------------------------
 # Module-level singleton
 # ---------------------------------------------------------------------------
-theme_service: _ThemeService = _ThemeService()
+ThemeService = _ThemeService
+theme_service: ThemeService = ThemeService()

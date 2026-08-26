@@ -149,4 +149,8 @@ class _ConfigService:
 # ---------------------------------------------------------------------------
 # Module-level singleton
 # ---------------------------------------------------------------------------
-config_service: _ConfigService = _ConfigService()
+# Public alias retained alongside the private implementation name used by
+# the original Day 1 tests.  Package-level imports expose this service as
+# ``ConfigService`` just like the other service modules.
+ConfigService = _ConfigService
+config_service: ConfigService = ConfigService()

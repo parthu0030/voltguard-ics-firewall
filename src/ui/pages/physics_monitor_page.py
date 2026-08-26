@@ -301,6 +301,8 @@ class PhysicsMonitorPage(QWidget):
 
         self._btn_pump_on.clicked.connect(lambda: self._send_pump(True))
         self._btn_pump_off.clicked.connect(lambda: self._send_pump(False))
+        self._btn_pump_on.setEnabled(False)
+        self._btn_pump_off.setEnabled(False)
 
         layout.addWidget(self._btn_pump_on)
         layout.addWidget(self._btn_pump_off)
@@ -471,6 +473,7 @@ class PhysicsMonitorPage(QWidget):
             """
         )
         self._valve_slider.valueChanged.connect(self._on_valve_changed)
+        self._valve_slider.setEnabled(False)
         layout.addWidget(self._valve_slider, 1)
 
         lbl_open = QLabel("Open")
@@ -513,11 +516,13 @@ class PhysicsMonitorPage(QWidget):
         """Start the simulation."""
         if self._runner and not self._runner.is_running():
             self._runner.start_simulation()
+            self._set_process_controls_enabled(True)
 
     def _on_stop(self) -> None:
         """Stop the simulation."""
         if self._runner and self._runner.is_running():
             self._runner.stop_simulation()
+        self._set_process_controls_enabled(False)
 
     def _on_reset(self) -> None:
         """Reset the simulation to initial state."""
@@ -536,6 +541,12 @@ class PhysicsMonitorPage(QWidget):
         """Send a pump command to the runner."""
         if self._runner:
             self._runner.set_pump(on)
+
+    def _set_process_controls_enabled(self, enabled: bool) -> None:
+        """Allow pump and valve commands only while the worker is running."""
+        self._btn_pump_on.setEnabled(enabled)
+        self._btn_pump_off.setEnabled(enabled)
+        self._valve_slider.setEnabled(enabled)
 
     def _on_valve_changed(self, value: int) -> None:
         """Handle valve slider movement."""

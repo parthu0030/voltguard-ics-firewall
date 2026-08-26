@@ -126,7 +126,8 @@ class DatabaseManager:
       - Provide safe teardown / close.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, db_path: Optional[Path | str] = None) -> None:
+        self._db_path = Path(db_path) if db_path is not None else DB_PATH
         self._connection: Optional[sqlite3.Connection] = None
         self._initialized: bool = False
 
@@ -149,13 +150,16 @@ class DatabaseManager:
         # ``check_same_thread=False`` is safe here because DatabaseService
         # serialises all access behind its own method calls.
         self._connection = sqlite3.connect(
-            str(DB_PATH),
+            str(self._db_path),
             check_same_thread=False,
         )
         self._connection.row_factory = sqlite3.Row
 
         # Enable WAL mode for better concurrent read performance.
-        self._connection.execute("PRAGMA journal_mode=WAL;")
+        try:
+            self._connection.execute("PRAGMA journal_mode=WAL;")
+        except sqlite3.Error:
+            pass
 
         # Enable foreign-key constraints.
         self._connection.execute("PRAGMA foreign_keys=ON;")
@@ -224,7 +228,7 @@ class DatabaseManager:
     @property
     def db_path(self) -> Path:
         """Return the filesystem path to the database file."""
-        return DB_PATH
+        return self._db_path
 
     @property
     def is_initialized(self) -> bool:

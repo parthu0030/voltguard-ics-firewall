@@ -35,7 +35,7 @@ from __future__ import annotations
 import copy
 from typing import Optional
 
-from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, pyqtSlot
 
 from src.config import config_loader
 from src.logger import get_logger
@@ -82,6 +82,7 @@ class _SimulationWorker(QObject):
     #  Slots (called from the worker thread's event loop)                 #
     # ------------------------------------------------------------------ #
 
+    @pyqtSlot()
     def start(self) -> None:
         """Start the simulation timer on the worker thread."""
         self._running = True
@@ -93,14 +94,20 @@ class _SimulationWorker(QObject):
             "SimulationWorker started (interval=%d ms).", self._interval_ms
         )
 
+    @pyqtSlot()
     def stop(self) -> None:
         """Stop the simulation timer."""
         self._running = False
         if self._timer is not None:
             self._timer.stop()
             self._timer = None
+        # Quit only after stopping the timer in its owning thread.
+        thread = self.thread()
+        if thread is not None:
+            thread.quit()
         _log.info("SimulationWorker stopped.")
 
+    @pyqtSlot(str, float)
     def apply_command(self, cmd_type: str, value: float) -> None:
         """
         Forward a command to the underlying engine.
@@ -109,6 +116,7 @@ class _SimulationWorker(QObject):
         """
         self._engine.apply_command(cmd_type, value)
 
+    @pyqtSlot()
     def reset_engine(self) -> None:
         """Reset the underlying engine to initial state."""
         self._engine.reset()
@@ -230,7 +238,6 @@ class SimulationRunner(QObject):
         # Ask the worker to stop via a queued connection.
         from PyQt6.QtCore import QMetaObject, Qt
         QMetaObject.invokeMethod(self._worker, "stop", Qt.ConnectionType.QueuedConnection)
-        self._thread.quit()
         self._thread.wait(3000)
         self.simulation_stopped.emit()
         _log.info("SimulationRunner: simulation stopped.")
@@ -243,7 +250,7 @@ class SimulationRunner(QObject):
     #  Command API (thread-safe — uses queued connections)                #
     # ------------------------------------------------------------------ #
 
-    def send_command(self, cmd_type: str, value: float) -> None:
+    def send_command(self, cmd_type: str, value: float) -> bool:
         """
         Send a control command to the physics engine.
 
@@ -254,6 +261,10 @@ class SimulationRunner(QObject):
             cmd_type: Command type string (``CommandType.*``).
             value:    Command argument.
         """
+        if not self._is_running or not self._thread.isRunning():
+            _log.warning("Ignoring %s command: simulation is not running.", cmd_type)
+            return False
+
         from PyQt6.QtCore import QMetaObject, Q_ARG, Qt
         QMetaObject.invokeMethod(
             self._worker,
@@ -262,8 +273,9 @@ class SimulationRunner(QObject):
             Q_ARG(str, cmd_type),
             Q_ARG(float, float(value)),
         )
+        return True
 
-    def set_pump(self, on: bool) -> None:
+    def set_pump(self, on: bool) -> bool:
         """
         Turn the pump ON or OFF.
 
@@ -271,10 +283,11 @@ class SimulationRunner(QObject):
             on: ``True`` to start the pump, ``False`` to stop it.
         """
         from src.physics.water_system_engine import CommandType
-        self.send_command(CommandType.SET_PUMP, 1.0 if on else 0.0)
+        sent = self.send_command(CommandType.SET_PUMP, 1.0 if on else 0.0)
         _log.debug("set_pump(%s)", on)
+        return sent
 
-    def set_valve(self, position: float) -> None:
+    def set_valve(self, position: float) -> bool:
         """
         Set the valve opening position.
 
@@ -283,8 +296,9 @@ class SimulationRunner(QObject):
         """
         from src.physics.water_system_engine import CommandType
         position = max(0.0, min(1.0, position))
-        self.send_command(CommandType.SET_VALVE, position)
+        sent = self.send_command(CommandType.SET_VALVE, position)
         _log.debug("set_valve(%.3f)", position)
+        return sent
 
     def reset_simulation(self) -> None:
         """
@@ -292,6 +306,11 @@ class SimulationRunner(QObject):
 
         Thread-safe: delivered as a queued call to the worker thread.
         """
+        if not self._is_running:
+            self._engine.reset()
+            _log.info("SimulationRunner: reset while stopped.")
+            return
+
         from PyQt6.QtCore import QMetaObject, Qt
         QMetaObject.invokeMethod(
             self._worker,

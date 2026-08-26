@@ -45,8 +45,8 @@ class _DatabaseService:
     codebase free from database concerns.
     """
 
-    def __init__(self) -> None:
-        self._db: DatabaseManager = DatabaseManager()
+    def __init__(self, db_manager: Optional[DatabaseManager] = None) -> None:
+        self._db: DatabaseManager = db_manager or DatabaseManager()
         self._initialized: bool = False
 
     # ------------------------------------------------------------------ #
@@ -599,6 +599,433 @@ class _DatabaseService:
         )
 
     # ------------------------------------------------------------------ #
+    #  Security Analytics & Statistics (Day 8)                             #
+    # ------------------------------------------------------------------ #
+
+    def get_security_summary(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Compute high-level summary metrics across packet_logs, alerts, and security_events.
+        """
+        conditions, params = self._build_time_where(start_time, end_time)
+        where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # Query security_events
+        evt_query = f"""
+            SELECT
+                COUNT(*) as total_events,
+                SUM(CASE WHEN final_action = 'BLOCK' THEN 1 ELSE 0 END) as total_blocked,
+                SUM(CASE WHEN final_action = 'ALLOW' THEN 1 ELSE 0 END) as total_allowed,
+                SUM(CASE WHEN final_action = 'ALERT' THEN 1 ELSE 0 END) as total_alert_actions,
+                SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical_events,
+                SUM(CASE WHEN severity = 'HIGH' THEN 1 ELSE 0 END) as high_risk_events,
+                SUM(CASE WHEN severity = 'MEDIUM' THEN 1 ELSE 0 END) as medium_risk_events,
+                SUM(CASE WHEN severity = 'LOW' THEN 1 ELSE 0 END) as low_risk_events,
+                AVG(risk_score) as avg_risk,
+                MAX(risk_score) as max_risk,
+                MIN(risk_score) as min_risk
+            FROM security_events
+            {where_clause};
+        """
+        cur = self._db.connection.execute(evt_query, tuple(params))
+        evt_row = cur.fetchone()
+
+        # Query alerts count
+        alert_where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        alert_cur = self._db.connection.execute(
+            f"SELECT COUNT(*) FROM alerts {alert_where};",
+            tuple(params),
+        )
+        total_alerts = alert_cur.fetchone()[0]
+
+        # Query packet logs count
+        pkt_where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        pkt_cur = self._db.connection.execute(
+            f"SELECT COUNT(*) FROM packet_logs {pkt_where};",
+            tuple(params),
+        )
+        total_packets = pkt_cur.fetchone()[0]
+
+        return {
+            "total_packets": int(total_packets or 0),
+            "total_security_events": int(evt_row["total_events"] or 0),
+            "total_alerts": int(total_alerts or 0),
+            "total_blocked_events": int(evt_row["total_blocked"] or 0),
+            "total_allowed_events": int(evt_row["total_allowed"] or 0),
+            "total_alert_actions": int(evt_row["total_alert_actions"] or 0),
+            "critical_events": int(evt_row["critical_events"] or 0),
+            "high_risk_events": int(evt_row["high_risk_events"] or 0),
+            "medium_risk_events": int(evt_row["medium_risk_events"] or 0),
+            "low_risk_events": int(evt_row["low_risk_events"] or 0),
+            "average_risk_score": round(float(evt_row["avg_risk"] or 0.0), 2),
+            "maximum_risk_score": int(evt_row["max_risk"] or 0),
+            "minimum_risk_score": int(evt_row["min_risk"] or 0),
+        }
+
+    def get_severity_distribution(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+    ) -> dict[str, int]:
+        """Return event count broken down by AlertSeverity."""
+        conditions, params = self._build_time_where(start_time, end_time)
+        where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        query = f"""
+            SELECT severity, COUNT(*) as count
+            FROM security_events
+            {where_clause}
+            GROUP BY severity;
+        """
+        cursor = self._db.connection.execute(query, tuple(params))
+        dist: dict[str, int] = {
+            AlertSeverity.LOW.value: 0,
+            AlertSeverity.MEDIUM.value: 0,
+            AlertSeverity.HIGH.value: 0,
+            AlertSeverity.CRITICAL.value: 0,
+        }
+        for row in cursor.fetchall():
+            sev = row["severity"]
+            if sev in dist:
+                dist[sev] = row["count"]
+            elif sev:
+                dist[str(sev)] = row["count"]
+        return dist
+
+    def get_action_distribution(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+    ) -> dict[str, int]:
+        """Return event count broken down by final enforcement action."""
+        conditions, params = self._build_time_where(start_time, end_time)
+        where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        query = f"""
+            SELECT final_action, COUNT(*) as count
+            FROM security_events
+            {where_clause}
+            GROUP BY final_action;
+        """
+        cursor = self._db.connection.execute(query, tuple(params))
+        dist: dict[str, int] = {"ALLOW": 0, "ALERT": 0, "BLOCK": 0}
+        for row in cursor.fetchall():
+            act = (row["final_action"] or "").upper()
+            if act in dist:
+                dist[act] = row["count"]
+            elif act:
+                dist[act] = row["count"]
+        return dist
+
+    def get_protocol_distribution(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+    ) -> dict[str, int]:
+        """Return event count broken down by protocol."""
+        conditions, params = self._build_time_where(start_time, end_time)
+        where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        query = f"""
+            SELECT protocol, COUNT(*) as count
+            FROM security_events
+            {where_clause}
+            GROUP BY protocol;
+        """
+        cursor = self._db.connection.execute(query, tuple(params))
+        return {row["protocol"] or "Unknown": row["count"] for row in cursor.fetchall()}
+
+    def get_modbus_function_distribution(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+    ) -> dict[int, int]:
+        """Return event count broken down by Modbus function code."""
+        conditions, params = self._build_time_where(start_time, end_time)
+        where_conds = ["function_code IS NOT NULL"] + conditions
+        where_clause = f" WHERE {' AND '.join(where_conds)}"
+
+        query = f"""
+            SELECT function_code, COUNT(*) as count
+            FROM security_events
+            {where_clause}
+            GROUP BY function_code
+            ORDER BY count DESC;
+        """
+        cursor = self._db.connection.execute(query, tuple(params))
+        return {int(row["function_code"]): row["count"] for row in cursor.fetchall()}
+
+    def get_blocked_modbus_function_counts(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+    ) -> dict[int, int]:
+        """Return BLOCK event counts keyed by Modbus function code."""
+        conditions, params = self._build_time_where(start_time, end_time)
+        conditions.extend(["function_code IS NOT NULL", "final_action = 'BLOCK'"])
+        cursor = self._db.connection.execute(
+            f"""
+            SELECT function_code, COUNT(*) AS count
+            FROM security_events
+            WHERE {' AND '.join(conditions)}
+            GROUP BY function_code;
+            """,
+            tuple(params),
+        )
+        return {int(row["function_code"]): row["count"] for row in cursor.fetchall()}
+
+    def get_top_source_ips(
+        self,
+        limit: int = 10,
+        action: Optional[str] = None,
+        severity: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Return the top source IP addresses by event count, with risk metrics.
+        """
+        conditions, params = self._build_time_where(start_time, end_time)
+        conditions.append("source_ip IS NOT NULL AND source_ip != '' AND source_ip != 'unknown'")
+        if action:
+            conditions.append("final_action = ?")
+            params.append(action.upper())
+        if severity:
+            conditions.append("severity = ?")
+            params.append(severity.upper())
+
+        where_clause = f" WHERE {' AND '.join(conditions)}"
+        query = f"""
+            SELECT
+                source_ip,
+                COUNT(*) as event_count,
+                SUM(CASE WHEN final_action = 'BLOCK' THEN 1 ELSE 0 END) as block_count,
+                SUM(CASE WHEN final_action = 'ALERT' THEN 1 ELSE 0 END) as alert_count,
+                SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical_count,
+                AVG(risk_score) as avg_risk,
+                MAX(risk_score) as max_risk
+            FROM security_events
+            {where_clause}
+            GROUP BY source_ip
+            ORDER BY event_count DESC, max_risk DESC
+            LIMIT ?;
+        """
+        params.append(limit)
+        cursor = self._db.connection.execute(query, tuple(params))
+        return [
+            {
+                "source_ip": row["source_ip"],
+                "event_count": row["event_count"],
+                "block_count": row["block_count"],
+                "alert_count": row["alert_count"],
+                "critical_count": row["critical_count"],
+                "avg_risk": round(float(row["avg_risk"] or 0.0), 1),
+                "max_risk": int(row["max_risk"] or 0),
+            }
+            for row in cursor.fetchall()
+        ]
+
+    def get_top_destination_ips(
+        self,
+        limit: int = 10,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Return the top destination IP addresses by event count."""
+        conditions, params = self._build_time_where(start_time, end_time)
+        conditions.append("destination_ip IS NOT NULL AND destination_ip != '' AND destination_ip != 'unknown'")
+
+        where_clause = f" WHERE {' AND '.join(conditions)}"
+        query = f"""
+            SELECT
+                destination_ip,
+                COUNT(*) as event_count,
+                SUM(CASE WHEN final_action = 'BLOCK' THEN 1 ELSE 0 END) as block_count,
+                AVG(risk_score) as avg_risk,
+                MAX(risk_score) as max_risk
+            FROM security_events
+            {where_clause}
+            GROUP BY destination_ip
+            ORDER BY event_count DESC
+            LIMIT ?;
+        """
+        params.append(limit)
+        cursor = self._db.connection.execute(query, tuple(params))
+        return [
+            {
+                "destination_ip": row["destination_ip"],
+                "event_count": row["event_count"],
+                "block_count": row["block_count"],
+                "avg_risk": round(float(row["avg_risk"] or 0.0), 1),
+                "max_risk": int(row["max_risk"] or 0),
+            }
+            for row in cursor.fetchall()
+        ]
+
+    def get_policy_statistics(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Compute matching statistics per firewall policy.
+        """
+        conditions, params = self._build_time_where(start_time, end_time)
+        where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # First get total events to compute percentage
+        total_evts_cur = self._db.connection.execute(
+            f"SELECT COUNT(*) FROM security_events {where_clause};",
+            tuple(params),
+        )
+        total_events = total_evts_cur.fetchone()[0] or 0
+
+        query = f"""
+            SELECT
+                matched_policy_id,
+                matched_policy_name,
+                COUNT(*) as match_count,
+                SUM(CASE WHEN final_action = 'BLOCK' THEN 1 ELSE 0 END) as block_count,
+                SUM(CASE WHEN final_action = 'ALERT' THEN 1 ELSE 0 END) as alert_count,
+                SUM(CASE WHEN final_action = 'ALLOW' THEN 1 ELSE 0 END) as allow_count
+            FROM security_events
+            {where_clause}
+            GROUP BY matched_policy_id, matched_policy_name
+            ORDER BY match_count DESC;
+        """
+        cursor = self._db.connection.execute(query, tuple(params))
+        results = []
+        for row in cursor.fetchall():
+            pid = row["matched_policy_id"] or "NO_POLICY_MATCH"
+            pname = row["matched_policy_name"] or "Direct / Unmatched Action"
+            m_count = row["match_count"]
+            pct = round((m_count / total_events * 100.0), 2) if total_events > 0 else 0.0
+            results.append({
+                "policy_id": pid,
+                "policy_name": pname,
+                "match_count": m_count,
+                "block_count": row["block_count"],
+                "alert_count": row["alert_count"],
+                "allow_count": row["allow_count"],
+                "percentage_of_total": pct,
+            })
+        return results
+
+    def get_highest_risk_events(
+        self,
+        limit: int = 10,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+    ) -> list[SecurityEvent]:
+        """Return the highest-risk security events."""
+        conditions, params = self._build_time_where(start_time, end_time)
+        where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        query = f"""
+            SELECT * FROM security_events
+            {where_clause}
+            ORDER BY risk_score DESC, id DESC
+            LIMIT ?;
+        """
+        params.append(limit)
+        cursor = self._db.connection.execute(query, tuple(params))
+        return [self._row_to_security_event(row) for row in cursor.fetchall()]
+
+    def get_risk_score_distribution(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+    ) -> dict[str, int]:
+        """
+        Return event counts grouped into risk-score buckets.
+
+        Buckets: 0-25 (low), 26-50 (medium), 51-75 (high), 76-100 (critical).
+        """
+        conditions, params = self._build_time_where(start_time, end_time)
+        where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        query = f"""
+            SELECT
+                CASE
+                    WHEN risk_score <= 25 THEN '0-25'
+                    WHEN risk_score <= 50 THEN '26-50'
+                    WHEN risk_score <= 75 THEN '51-75'
+                    ELSE '76-100'
+                END as bucket,
+                COUNT(*) as count
+            FROM security_events
+            {where_clause}
+            GROUP BY bucket
+            ORDER BY bucket;
+        """
+        cursor = self._db.connection.execute(query, tuple(params))
+        dist: dict[str, int] = {"0-25": 0, "26-50": 0, "51-75": 0, "76-100": 0}
+        for row in cursor.fetchall():
+            bucket = row["bucket"]
+            if bucket in dist:
+                dist[bucket] = row["count"]
+        return dist
+
+    def get_events_time_series(
+        self,
+        bucket_hours: int = 1,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Return time series aggregated buckets of security events.
+        """
+        conditions, params = self._build_time_where(start_time, end_time)
+        where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # Using substring for hourly buckets (YYYY-MM-DDTHH)
+        query = f"""
+            SELECT
+                SUBSTR(timestamp, 1, 13) as time_bucket,
+                COUNT(*) as event_count,
+                SUM(CASE WHEN final_action = 'BLOCK' THEN 1 ELSE 0 END) as block_count,
+                SUM(CASE WHEN final_action = 'ALERT' THEN 1 ELSE 0 END) as alert_count,
+                AVG(risk_score) as avg_risk,
+                MAX(risk_score) as max_risk
+            FROM security_events
+            {where_clause}
+            GROUP BY time_bucket
+            ORDER BY time_bucket ASC;
+        """
+        cursor = self._db.connection.execute(query, tuple(params))
+        return [
+            {
+                "time_bucket": row["time_bucket"] + ":00:00",
+                "event_count": row["event_count"],
+                "block_count": row["block_count"],
+                "alert_count": row["alert_count"],
+                "avg_risk": round(float(row["avg_risk"] or 0.0), 1),
+                "max_risk": int(row["max_risk"] or 0),
+            }
+            for row in cursor.fetchall()
+        ]
+
+    def _build_time_where(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        col_name: str = "timestamp",
+    ) -> tuple[list[str], list[Any]]:
+        """Helper to build parameterized SQL WHERE conditions for timestamps."""
+        conditions: list[str] = []
+        params: list[Any] = []
+        if start_time:
+            conditions.append(f"{col_name} >= ?")
+            params.append(start_time)
+        if end_time:
+            conditions.append(f"{col_name} <= ?")
+            params.append(end_time)
+        return conditions, params
+
+    # ------------------------------------------------------------------ #
     #  Health check                                                        #
     # ------------------------------------------------------------------ #
 
@@ -618,6 +1045,7 @@ class _DatabaseService:
 
 
 # ---------------------------------------------------------------------------
-# Module-level singleton
+# Class alias and Module-level singleton
 # ---------------------------------------------------------------------------
+DatabaseService = _DatabaseService
 database_service: _DatabaseService = _DatabaseService()

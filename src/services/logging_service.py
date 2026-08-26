@@ -183,4 +183,5 @@ class _LoggingService:
 # ---------------------------------------------------------------------------
 # Module-level singleton
 # ---------------------------------------------------------------------------
-logging_service: _LoggingService = _LoggingService()
+LoggingService = _LoggingService
+logging_service: LoggingService = LoggingService()
