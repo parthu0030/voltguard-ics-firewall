@@ -32,12 +32,15 @@ Quick Start::
 
 from src.physics.physics_config import PhysicsConfig
 from src.physics.simulation_runner import SimulationRunner
+from src.physics.safety_monitor import PhysicsSafetyMonitor, PhysicsViolation
 from src.physics.system_state import SystemState
 from src.physics.water_system_engine import CommandType, WaterSystemEngine
 
 __all__ = [
     "PhysicsConfig",
     "SimulationRunner",
+    "PhysicsSafetyMonitor",
+    "PhysicsViolation",
     "SystemState",
     "CommandType",
     "WaterSystemEngine",

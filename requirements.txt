@@ -23,5 +23,5 @@ pytest>=8.0.0
 # scipy>=1.12.0          # Physics PDE solvers (Week 2)
 # scapy>=2.5.0           # Live packet capture (Week 1 Day 2)
 # psutil>=5.9.0          # System memory info in startup banner
-# reportlab>=4.0.0       # PDF report export (Week 2)
+reportlab>=4.0.0         # PDF report export
 # pandas>=2.0.0          # Data manipulation for analytics (Week 2)

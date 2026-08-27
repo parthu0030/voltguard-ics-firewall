@@ -98,12 +98,24 @@ CREATE TABLE IF NOT EXISTS security_events (
 );
 """
 
+_CREATE_PHYSICS_READINGS = """
+CREATE TABLE IF NOT EXISTS physics_readings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    pressure_bar REAL NOT NULL, flow_lps REAL NOT NULL,
+    temperature_celsius REAL NOT NULL, pump_on INTEGER NOT NULL,
+    pump_rpm REAL NOT NULL, valve_position REAL NOT NULL,
+    tank_level_m3 REAL NOT NULL
+);
+"""
+
 _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_security_events_ts ON security_events(timestamp);",
     "CREATE INDEX IF NOT EXISTS idx_security_events_sev ON security_events(severity);",
     "CREATE INDEX IF NOT EXISTS idx_security_events_action ON security_events(final_action);",
     "CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(timestamp);",
     "CREATE INDEX IF NOT EXISTS idx_alerts_ack ON alerts(acknowledged);",
+    "CREATE INDEX IF NOT EXISTS idx_physics_readings_ts ON physics_readings(timestamp);",
 ]
 
 _ALL_TABLES: list[str] = [
@@ -112,6 +124,7 @@ _ALL_TABLES: list[str] = [
     _CREATE_APPLICATION_SETTINGS,
     _CREATE_EVENT_LOGS,
     _CREATE_SECURITY_EVENTS,
+    _CREATE_PHYSICS_READINGS,
 ]
 
 

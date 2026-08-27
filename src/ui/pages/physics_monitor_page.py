@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
+    QComboBox,
     QFrame,
     QGridLayout,
     QGroupBox,
@@ -307,6 +308,34 @@ class PhysicsMonitorPage(QWidget):
         layout.addWidget(self._btn_pump_on)
         layout.addWidget(self._btn_pump_off)
 
+        layout.addWidget(QLabel("RPM target"))
+        self._rpm_slider = QSlider(Qt.Orientation.Horizontal)
+        self._rpm_slider.setRange(int(self._phys_config.pump_rpm_min_running), int(self._phys_config.pump_rpm_max))
+        self._rpm_slider.setValue(int(self._phys_config.pump_rpm_nominal))
+        self._rpm_slider.setFixedWidth(130)
+        self._rpm_slider.setEnabled(False)
+        self._rpm_slider.valueChanged.connect(self._on_rpm_changed)
+        layout.addWidget(self._rpm_slider)
+        self._rpm_label = QLabel(f"{int(self._phys_config.pump_rpm_nominal)} RPM")
+        self._rpm_label.setStyleSheet("color: #58A6FF; font-weight: 700;")
+        layout.addWidget(self._rpm_label)
+
+        self._scenario_combo = QComboBox()
+        self._scenario_combo.addItem("Training scenario…", "")
+        self._scenario_combo.addItem("Pressure spike", "pressure_spike")
+        self._scenario_combo.addItem("Pump overspeed", "pump_overspeed")
+        self._scenario_combo.addItem("High temperature", "temperature_high")
+        self._scenario_combo.addItem("Pump with no flow", "pump_no_flow")
+        self._scenario_combo.addItem("Low tank level", "tank_low")
+        self._scenario_combo.setEnabled(False)
+        layout.addWidget(self._scenario_combo)
+        self._btn_trigger_scenario = self._make_button(
+            "Trigger", "#3B1E1E", "#F85149", "btn_trigger_scenario"
+        )
+        self._btn_trigger_scenario.clicked.connect(self._on_trigger_scenario)
+        self._btn_trigger_scenario.setEnabled(False)
+        layout.addWidget(self._btn_trigger_scenario)
+
         layout.addStretch()
 
         # Tick counter
@@ -505,6 +534,7 @@ class PhysicsMonitorPage(QWidget):
                 lambda: self._update_subtitle("Stopped")
             )
             self._runner.simulation_error.connect(self._on_sim_error)
+            self._runner.physics_violation.connect(self._on_physics_violation)
         except Exception as exc:  # noqa: BLE001
             self._subtitle.setText(f"Engine Error: {exc}")
 
@@ -547,6 +577,9 @@ class PhysicsMonitorPage(QWidget):
         self._btn_pump_on.setEnabled(enabled)
         self._btn_pump_off.setEnabled(enabled)
         self._valve_slider.setEnabled(enabled)
+        self._rpm_slider.setEnabled(enabled)
+        self._scenario_combo.setEnabled(enabled)
+        self._btn_trigger_scenario.setEnabled(enabled)
 
     def _on_valve_changed(self, value: int) -> None:
         """Handle valve slider movement."""
@@ -554,6 +587,33 @@ class PhysicsMonitorPage(QWidget):
         self._valve_pct_label.setText(f"{value} %")
         if self._runner:
             self._runner.set_valve(pct)
+
+    def _on_rpm_changed(self, value: int) -> None:
+        """Set the pump's explicit target; actual RPM ramps to this value."""
+        self._rpm_label.setText(f"{value} RPM")
+        if self._runner:
+            self._runner.set_pump_rpm(float(value))
+
+    def _on_trigger_scenario(self) -> None:
+        """Queue the selected safe, in-memory anomaly training scenario."""
+        scenario = self._scenario_combo.currentData()
+        if scenario and self._runner and self._runner.trigger_anomaly(str(scenario)):
+            self._warnings_label.setText(
+                f"⚠  Training scenario queued: {self._scenario_combo.currentText()}"
+            )
+            self._warnings_label.setStyleSheet(
+                "color: #D29922; font-size: 12px; background: transparent;"
+            )
+
+    def _on_physics_violation(self, violation) -> None:
+        """Present the structured violation that entered the alert pipeline."""
+        self._warnings_label.setText(
+            f"⚠  {violation.severity.value}: {violation.description}\n"
+            f"Rule {violation.rule_id} · risk {violation.risk_score}/100"
+        )
+        self._warnings_label.setStyleSheet(
+            "color: #F85149; font-size: 12px; background: transparent;"
+        )
 
     def _on_state_updated(self, state: SystemState) -> None:
         """Update all dashboard cards from a new SystemState."""

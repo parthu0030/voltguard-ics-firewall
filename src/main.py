@@ -56,6 +56,14 @@ def _install_global_exception_handler(app: QApplication) -> None:
         app: The running QApplication instance (used for dialog parent).
     """
     def _handler(exc_type: type, exc_value: BaseException, exc_tb) -> None:
+        # Ctrl+C is an intentional terminal shutdown request, not an
+        # application fault.  Do not display an error dialog or persist it as
+        # an incident; ask Qt to leave its event loop cleanly instead.
+        if issubclass(exc_type, KeyboardInterrupt):
+            logging_service.info("Shutdown requested from terminal.", source="Bootstrap")
+            app.quit()
+            return
+
         # Always log the full traceback first.
         logging_service.log_exception_to_file(exc_type, exc_value, exc_tb)
 

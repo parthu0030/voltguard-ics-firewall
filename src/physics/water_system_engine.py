@@ -123,6 +123,9 @@ class WaterSystemEngine(BasePhysicsEngine):
         self._config: PhysicsConfig = config
         self._state: SystemState = self._make_initial_state()
         self._pending_commands: list[tuple[str, float]] = []
+        self._pending_anomaly: Optional[str] = None
+        self._pump_rpm_setpoint: float = config.pump_rpm_nominal
+        self._valve_target: float = 0.0
         self._lock: Lock = Lock()
         self._tick_count: int = 0
 
@@ -228,6 +231,9 @@ class WaterSystemEngine(BasePhysicsEngine):
         with self._lock:
             self._state = self._make_initial_state()
             self._pending_commands.clear()
+            self._pending_anomaly = None
+            self._pump_rpm_setpoint = self._config.pump_rpm_nominal
+            self._valve_target = 0.0
             self._tick_count = 0
         _log.info("WaterSystemEngine reset to initial state.")
 
@@ -262,6 +268,18 @@ class WaterSystemEngine(BasePhysicsEngine):
         with self._lock:
             self._pending_commands.append((cmd_type, value))
         _log.debug("Command queued: %s = %s", cmd_type, value)
+
+    def inject_anomaly(self, scenario: str) -> None:
+        """Queue one safe, simulated process anomaly for operator training.
+
+        This affects only the in-memory demonstration model and is never
+        connected to host controls or a physical device.
+        """
+        allowed = {"pressure_spike", "pump_overspeed", "temperature_high", "pump_no_flow", "tank_low"}
+        if scenario not in allowed:
+            raise PhysicsError(f"Unknown anomaly scenario: '{scenario}'")
+        with self._lock:
+            self._pending_anomaly = scenario
 
     # ------------------------------------------------------------------ #
     #  State Update (Main Simulation Loop)                                 #
@@ -299,10 +317,20 @@ class WaterSystemEngine(BasePhysicsEngine):
             self._apply_pending_commands()
 
             # ---- 2–6. Sub-simulations ------------------------------------
+            # The actuator keeps moving toward its target on every tick.
+            valve_position = self.simulate_valve_position(
+                self._state.valve_position, self._valve_target, delta_t
+            )
+            self._state.valve_position = valve_position
             new_rpm   = self.simulate_pump_speed(self._state, delta_t)
             new_press = self.simulate_pressure(self._state, new_rpm, delta_t)
-            new_flow  = self.simulate_flow(self._state, new_press)
-            new_temp  = self.simulate_temperature(self._state, delta_t)
+            # Build the remaining process variables from the values calculated
+            # in this same tick (never a stale previous snapshot).
+            flow_state = copy.copy(self._state)
+            flow_state.pump_rpm = new_rpm
+            new_flow  = self.simulate_flow(flow_state, new_press) if self._state.pump_on else 0.0
+            temp_state = copy.copy(flow_state)
+            new_temp  = self.simulate_temperature(temp_state, delta_t)
             new_tank  = self.simulate_tank_level(self._state, new_flow, delta_t)
 
             # ---- 7. Build new state & clamp ------------------------------
@@ -317,6 +345,8 @@ class WaterSystemEngine(BasePhysicsEngine):
                 tank_level_m3       = self._clamp_tank(new_tank),
                 timestamp           = datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
             )
+
+            self._apply_pending_anomaly()
 
             self._tick_count += 1
 
@@ -336,7 +366,8 @@ class WaterSystemEngine(BasePhysicsEngine):
         """
         Calculate the new pump RPM for the next simulation tick.
 
-        When the pump is ON, RPM ramps up toward ``pump_rpm_max`` at
+        When the pump is ON, RPM ramps up toward the explicit operator
+        setpoint (or configured nominal setpoint) at
         ``pump_ramp_rate_rpm_per_sec``.  When OFF, it decays toward 0
         at ``pump_decay_rate_rpm_per_sec``.
 
@@ -349,8 +380,8 @@ class WaterSystemEngine(BasePhysicsEngine):
         """
         cfg = self._config
         if state.pump_on:
-            # Ramp up toward max RPM.
-            target_rpm = cfg.pump_rpm_max
+            # Rated maximum is a limit, not the default operating target.
+            target_rpm = min(self._pump_rpm_setpoint, cfg.pump_rpm_max)
             delta = cfg.pump_ramp_rate_rpm_per_sec * dt
             new_rpm = min(state.pump_rpm + delta, target_rpm)
         else:
@@ -385,7 +416,10 @@ class WaterSystemEngine(BasePhysicsEngine):
 
         if state.pump_on and new_rpm > 0:
             # Target pressure is proportional to RPM.
-            target_pressure = new_rpm * cfg.pressure_ramp_bar_per_rpm
+            # A restricted downstream valve creates upstream back-pressure;
+            # a fully open valve relieves a portion of that pressure.
+            restriction = 1.0 - state.valve_position
+            target_pressure = new_rpm * cfg.pressure_ramp_bar_per_rpm * (0.65 + 0.35 * restriction)
             # Move toward target with a lag.
             gap = target_pressure - state.pressure_bar
             new_pressure = state.pressure_bar + gap * min(dt * 0.5, 1.0)
@@ -414,10 +448,19 @@ class WaterSystemEngine(BasePhysicsEngine):
         Returns:
             New flow rate in litres/second (unclamped).
         """
+        # This helper is also used for isolated model analysis; pump-off
+        # behaviour is enforced by update_state before calling it.
         if state.valve_position <= 0.0 or new_pressure <= 0.0:
             return 0.0
 
-        flow = new_pressure * state.valve_position * self._config.flow_coefficient
+        rpm_ratio = min(1.0, state.pump_rpm / self._config.pump_rpm_max) if state.pump_rpm > 0 else 1.0
+        # Centrifugal pump affinity laws: flow grows with speed while the
+        # available head grows with speed².  The valve characteristic is
+        # equal-percentage-ish (opening ** .7), so low openings remain a
+        # meaningful restriction rather than making every value linear.
+        head_ratio = min(1.0, max(0.0, new_pressure / self._config.pressure_max_bar))
+        valve_characteristic = state.valve_position ** 0.7
+        flow = self._config.flow_max_lps * rpm_ratio * math.sqrt(head_ratio) * valve_characteristic
         return max(flow, 0.0)
 
     def simulate_temperature(self, state: SystemState, dt: float) -> float:
@@ -570,25 +613,43 @@ class WaterSystemEngine(BasePhysicsEngine):
 
             elif cmd_type == CommandType.SET_VALVE:
                 target = max(0.0, min(1.0, value))
-                # Apply gradual valve movement.
-                new_pos = self.simulate_valve_position(
-                    self._state.valve_position,
-                    target,
-                    self._config.simulation_interval_sec,
-                )
-                self._state.valve_position = new_pos
-                _log.debug("Valve set to %.3f (target %.3f)", new_pos, target)
+                self._valve_target = target
+                _log.debug("Valve target set to %.3f", target)
 
             elif cmd_type == CommandType.SET_PUMP_RPM:
                 # Clamp to 0–max; pump must be ON for this to take effect.
                 if self._state.pump_on:
                     target_rpm = max(0.0, min(value, self._config.pump_rpm_max))
-                    self._state.pump_rpm = target_rpm
-                    _log.debug("Pump RPM set to %.0f", target_rpm)
+                    self._pump_rpm_setpoint = target_rpm
+                    _log.debug("Pump RPM setpoint set to %.0f", target_rpm)
                 else:
                     _log.debug("SET_PUMP_RPM ignored — pump is OFF")
 
         self._pending_commands.clear()
+
+    def _apply_pending_anomaly(self) -> None:
+        """Apply one operator-selected, in-memory anomaly after a normal tick."""
+        scenario = self._pending_anomaly
+        self._pending_anomaly = None
+        if scenario is None:
+            return
+
+        cfg = self._config
+        if scenario == "pressure_spike":
+            self._state.pressure_bar = cfg.pressure_max_bar * 1.20
+        elif scenario == "pump_overspeed":
+            self._state.pump_on = True
+            self._state.pump_rpm = cfg.pump_rpm_max * 1.15
+        elif scenario == "temperature_high":
+            self._state.temperature_celsius = cfg.temp_max_celsius + 10.0
+        elif scenario == "pump_no_flow":
+            self._state.pump_on = True
+            self._state.pump_rpm = cfg.pump_rpm_max * 0.50
+            self._state.valve_position = 0.50
+            self._state.flow_lps = 0.0
+        elif scenario == "tank_low":
+            self._state.tank_level_m3 = cfg.tank_min_m3 + 1.0
+        _log.warning("Applied safe simulated anomaly scenario: %s", scenario)
 
     def _clamp_pressure(self, pressure: float) -> float:
         """Clamp pressure to [0, pressure_max_bar]."""

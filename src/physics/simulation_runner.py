@@ -40,6 +40,7 @@ from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, pyqtSlot
 from src.config import config_loader
 from src.logger import get_logger
 from src.physics.physics_config import PhysicsConfig
+from src.physics.safety_monitor import PhysicsSafetyMonitor, PhysicsViolation
 from src.physics.system_state import SystemState
 from src.physics.water_system_engine import WaterSystemEngine
 
@@ -122,6 +123,11 @@ class _SimulationWorker(QObject):
         self._engine.reset()
         _log.info("SimulationWorker engine reset.")
 
+    @pyqtSlot(str)
+    def inject_anomaly(self, scenario: str) -> None:
+        """Queue a safe in-memory training anomaly on the worker thread."""
+        self._engine.inject_anomaly(scenario)
+
     # ------------------------------------------------------------------ #
     #  Private                                                             #
     # ------------------------------------------------------------------ #
@@ -168,6 +174,7 @@ class SimulationRunner(QObject):
     simulation_error: pyqtSignal = pyqtSignal(str)
     simulation_started: pyqtSignal = pyqtSignal()
     simulation_stopped: pyqtSignal = pyqtSignal()
+    physics_violation: pyqtSignal = pyqtSignal(object)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         """
@@ -199,6 +206,7 @@ class SimulationRunner(QObject):
         self._thread.started.connect(self._worker.start)
         self._worker.tick_done.connect(self._on_tick)
         self._worker.error_occurred.connect(self._on_error)
+        self._safety_monitor = PhysicsSafetyMonitor(self._config)
 
         self._is_running: bool = False
         _log.info(
@@ -300,12 +308,32 @@ class SimulationRunner(QObject):
         _log.debug("set_valve(%.3f)", position)
         return sent
 
+    def set_pump_rpm(self, rpm: float) -> bool:
+        """Set a bounded pump speed target; the engine ramps to it."""
+        from src.physics.water_system_engine import CommandType
+        return self.send_command(CommandType.SET_PUMP_RPM, rpm)
+
+    def trigger_anomaly(self, scenario: str) -> bool:
+        """Queue a safe physics-training scenario while the simulation runs."""
+        if not self._is_running or not self._thread.isRunning():
+            _log.warning("Ignoring anomaly scenario while simulation is stopped: %s", scenario)
+            return False
+        from PyQt6.QtCore import QMetaObject, Q_ARG, Qt
+        QMetaObject.invokeMethod(
+            self._worker,
+            "inject_anomaly",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, scenario),
+        )
+        return True
+
     def reset_simulation(self) -> None:
         """
         Reset the physics engine to its initial state.
 
         Thread-safe: delivered as a queued call to the worker thread.
         """
+        self._safety_monitor.reset()
         if not self._is_running:
             self._engine.reset()
             _log.info("SimulationRunner: reset while stopped.")
@@ -344,7 +372,48 @@ class SimulationRunner(QObject):
 
     def _on_tick(self, state: SystemState) -> None:
         """Relay the worker's tick result to external listeners."""
+        try:
+            from src.services.database_service import database_service
+            if not database_service.is_ready:
+                database_service.initialize()
+            if database_service.is_ready:
+                database_service.save_physics_reading(state)
+        except Exception as exc:
+            _log.error("Failed to persist physics reading: %s", exc)
         self.state_updated.emit(state)
+        for violation in self._safety_monitor.evaluate(state):
+            self.physics_violation.emit(violation)
+            self._record_physics_violation(violation)
+
+    @staticmethod
+    def _record_physics_violation(violation: PhysicsViolation) -> None:
+        """Bridge a physics violation into VoltGuard's existing alert flow."""
+        try:
+            from src.models.app_models import AlertSeverity
+            from src.models.security_event import SecurityEvent
+            from src.services.alert_manager import alert_manager
+
+            severity = AlertSeverity(violation.severity.value)
+            action = "BLOCK" if violation.severity.value == "CRITICAL" else "ALERT"
+            event = SecurityEvent(
+                timestamp=violation.timestamp,
+                source_ip="physics-monitor",
+                destination_ip="water-system",
+                protocol="Physics Simulation",
+                risk_score=violation.risk_score,
+                risk_level=violation.severity.value,
+                original_decision=action,
+                matched_policy_id=violation.rule_id,
+                matched_policy_name="Physics Safety Monitor",
+                final_action=action,
+                reason=(f"{violation.description} Current {violation.parameter}="
+                        f"{violation.current_value:.3f}; safe range {violation.safe_range}."),
+                event_type="PHYSICS_VIOLATION",
+                severity=severity,
+            )
+            alert_manager.process_security_event(event)
+        except Exception as exc:  # Persistence must not stop the simulator.
+            _log.error("Failed to persist physics violation %s: %s", violation.rule_id, exc)
 
     def _on_error(self, message: str) -> None:
         """Relay engine errors to external listeners and log them."""

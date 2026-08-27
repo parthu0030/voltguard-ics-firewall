@@ -113,6 +113,10 @@ class PhysicsConfig:
 
     # Pump
     pump_rpm_max: float = 3600.0
+    # A running pump uses this nominal setpoint unless an operator supplies a
+    # different one.  Rated maximum is a safety limit, not an automatic target.
+    pump_rpm_nominal: float = 1800.0
+    pump_rpm_min_running: float = 600.0
     pump_ramp_rate_rpm_per_sec: float = 300.0
     pump_decay_rate_rpm_per_sec: float = 150.0
     pressure_ramp_bar_per_rpm: float = 0.0025
@@ -174,6 +178,8 @@ class PhysicsConfig:
             temp_min_celsius                = _f("temp_min_celsius",                5.0),
             temp_ambient_celsius            = _f("temp_ambient_celsius",            22.0),
             pump_rpm_max                    = _f("rpm_max",                         3600.0),
+            pump_rpm_nominal                = _f("pump_rpm_nominal",                1800.0),
+            pump_rpm_min_running            = _f("pump_rpm_min_running",            600.0),
             pump_ramp_rate_rpm_per_sec      = _f("pump_ramp_rate_rpm_per_sec",      300.0),
             pump_decay_rate_rpm_per_sec     = _f("pump_decay_rate_rpm_per_sec",     150.0),
             pressure_ramp_bar_per_rpm       = _f("pressure_ramp_bar_per_rpm",       0.0025),
@@ -235,6 +241,8 @@ class PhysicsConfig:
             errors.append(
                 f"pump_rpm_max ({self.pump_rpm_max}) must be > 0"
             )
+        if not (0 < self.pump_rpm_min_running <= self.pump_rpm_nominal <= self.pump_rpm_max):
+            errors.append("pump running RPM limits must satisfy 0 < min <= nominal <= max")
         if self.flow_max_lps <= 0:
             errors.append(
                 f"flow_max_lps ({self.flow_max_lps}) must be > 0"

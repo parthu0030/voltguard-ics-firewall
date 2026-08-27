@@ -33,6 +33,7 @@ from src.models.app_models import (
     PacketLog,
 )
 from src.models.security_event import SecurityEvent
+from src.physics.system_state import SystemState
 
 
 class _DatabaseService:
@@ -232,6 +233,40 @@ class _DatabaseService:
             "SELECT COUNT(*) FROM packet_logs;"
         )
         return cursor.fetchone()[0]
+
+    # ------------------------------------------------------------------ #
+    # physics_readings
+    # ------------------------------------------------------------------ #
+
+    def save_physics_reading(self, state: SystemState) -> int:
+        """Persist one canonical physics state emitted by the simulator."""
+        cursor = self._db.connection.execute(
+            """INSERT INTO physics_readings
+            (timestamp, pressure_bar, flow_lps, temperature_celsius, pump_on,
+             pump_rpm, valve_position, tank_level_m3)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (state.timestamp, state.pressure_bar, state.flow_lps,
+             state.temperature_celsius, int(state.pump_on), state.pump_rpm,
+             state.valve_position, state.tank_level_m3),
+        )
+        self._db.connection.commit()
+        return int(cursor.lastrowid)
+
+    def get_physics_readings(self, start_time: Optional[str] = None,
+                             end_time: Optional[str] = None, limit: int = 500) -> list[dict[str, Any]]:
+        """Return persisted telemetry in chronological order for charts/reports."""
+        clauses, params = [], []
+        if start_time:
+            clauses.append("timestamp >= ?"); params.append(start_time)
+        if end_time:
+            clauses.append("timestamp <= ?"); params.append(end_time)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = self._db.connection.execute(
+            "SELECT timestamp, pressure_bar, flow_lps, temperature_celsius, pump_on, "
+            "pump_rpm, valve_position, tank_level_m3 FROM physics_readings" + where +
+            " ORDER BY id DESC LIMIT ?", (*params, limit),
+        ).fetchall()
+        return [dict(row) for row in reversed(rows)]
 
     # ------------------------------------------------------------------ #
     #  alerts                                                              #
