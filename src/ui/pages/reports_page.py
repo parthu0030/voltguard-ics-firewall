@@ -40,7 +40,7 @@ class ReportsPage(QWidget):
         title = QLabel("📋  Operational Report")
         title.setStyleSheet("font-size:22px;font-weight:700;color:#E6EDF3")
         layout.addWidget(title)
-        controls = QHBoxLayout(); self._period = QComboBox(); self._period.addItems(["1h", "24h", "7d", "30d"])
+        controls = QHBoxLayout(); self._period = QComboBox(); self._period.addItems(["1h", "6h", "24h", "7d", "30d"])
         controls.addWidget(QLabel("Period")); controls.addWidget(self._period)
         generate = QPushButton("Generate report"); generate.clicked.connect(self.generate); controls.addWidget(generate); controls.addStretch(); layout.addLayout(controls)
         download = QPushButton("Download PDF Report"); download.clicked.connect(self.download_pdf); controls.addWidget(download)
@@ -53,15 +53,24 @@ class ReportsPage(QWidget):
                 database_service.initialize()
             start, end = self._analytics.resolve_time_window(self._period.currentText())
             summary = self._analytics.get_summary_metrics(start_time=start, end_time=end)
-            events = database_service.load_recent_security_events(500)
+            events = database_service.get_security_events(start_time=start, end_time=end, limit=500)
             readings = database_service.get_physics_readings(start, end)
             anomalies = [event for event in events if event.event_type == "PHYSICS_VIOLATION"]
             incidents = sorted(events, key=lambda event: event.risk_score, reverse=True)[:10]
+            protocol_stats = database_service.get_protocol_distribution(start, end)
+            modbus_stats = database_service.get_modbus_function_distribution(start, end)
+            correlations = [event for event in events if event.event_type == "PHYSICS_VIOLATION" or event.function_code is not None][-10:]
             recommendations = ["Review blocked commands and validate controller authorization."] if any(e.final_action == "BLOCK" for e in events) else ["No blocked command in this period; continue monitoring."]
             if anomalies:
                 recommendations.append("Investigate physics anomalies and confirm valve/pump interlocks.")
-            lines = ["VoltGuard — Physics-Aware ICS/SCADA Security Report", f"Generated: {datetime.now(timezone.utc).isoformat(timespec='seconds')}", f"Selected period: {self._period.currentText()}", "", f"Packets: {summary.total_packets}", f"Decisions: ALLOW {summary.total_allowed_events} | ALERT {summary.total_alert_actions} | BLOCK {summary.total_blocked_events}", f"Risk: average {summary.average_risk_score:.1f}, max {summary.maximum_risk_score}", f"Physics: {len(readings)} readings | {len(anomalies)} anomalies", "", "Major incidents:"]
+            lines = ["VoltGuard — Physics-Aware ICS/SCADA Security Report", f"Generated: {datetime.now(timezone.utc).isoformat(timespec='seconds')}", f"Selected period: {self._period.currentText()} ({start or 'beginning'} to {end or 'now'})", "", "Security summary", f"Packets: {summary.total_packets}", f"Decisions: ALLOW {summary.total_allowed_events} | ALERT {summary.total_alert_actions} | BLOCK {summary.total_blocked_events}", f"High-risk events: {summary.high_risk_events + summary.critical_events}", f"Risk: average {summary.average_risk_score:.1f}, max {summary.maximum_risk_score}", f"Physics: {len(readings)} readings | {len(anomalies)} anomalies", "", f"Protocol statistics: {protocol_stats or 'None recorded'}", f"Modbus statistics: {modbus_stats or 'None recorded'}"]
+            if readings:
+                latest = readings[-1]
+                lines += ["", "Physical system summary", "pressure={pressure_bar:.2f} bar | flow={flow_lps:.3f} L/s | temperature={temperature_celsius:.1f} C".format(**latest), "pump={pump_on} | rpm={pump_rpm:.0f} | valve={valve_position:.0%} | tank={tank_level_m3:.2f} m3".format(**latest)]
+            lines += ["", "Major incidents:"]
             lines += [f"- {event.timestamp} | {event.final_action} | risk {event.risk_score} | {event.reason}" for event in incidents] or ["- None recorded"]
+            lines += ["", "Cyber-physical correlations:"]
+            lines += [f"- {event.timestamp} | {event.event_id} | {event.protocol} | FC {event.function_code if event.function_code is not None else 'n/a'} | {event.event_type} | {event.final_action}" for event in correlations] or ["- No correlated security or physics events recorded"]
             lines += ["", "Recommendations:"] + [f"- {item}" for item in recommendations]
             self._report.setPlainText("\n".join(lines))
         except Exception as exc:

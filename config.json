@@ -12,7 +12,6 @@
     "temp_min_celsius": 5.0,
     "rpm_max": 3600.0,
     "pump_rpm_nominal": 1800.0,
-    "pump_rpm_min_running": 600.0,
     "tank_max_m3": 100.0,
     "tank_min_m3": 0.0,
     "tank_initial_m3": 75.0,

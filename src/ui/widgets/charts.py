@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QPainter, QPen
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 
@@ -52,7 +52,7 @@ class _ChartBase(QWidget):
         painter.drawText(14, 22, self._title)
 
         if self._is_empty:
-            painter.setPen("#484F58")
+            painter.setPen(QColor("#484F58"))
             font.setBold(False)
             font.setPointSize(9)
             painter.setFont(font)
@@ -107,14 +107,14 @@ class BarChartWidget(_ChartBase):
             for i, (label, val) in enumerate(self._data):
                 bar_w = int((val / max_val) * (w - 80))
                 colour = self._bar_colours[i % len(self._bar_colours)]
-                painter.fillRect(margin + 70, y, bar_w, bar_h, colour)
-                painter.setPen("#8B949E")
+                painter.fillRect(margin + 70, y, bar_w, bar_h, QColor(colour))
+                painter.setPen(QColor("#8B949E"))
                 font = QFont()
                 font.setPointSize(8)
                 painter.setFont(font)
                 short = label if len(label) <= 12 else label[:11] + "…"
                 painter.drawText(margin, y + bar_h - 2, short)
-                painter.setPen("#E6EDF3")
+                painter.setPen(QColor("#E6EDF3"))
                 painter.drawText(margin + 74 + bar_w + 4, y + bar_h - 2, str(int(val)))
                 y += bar_h + gap
         else:
@@ -125,8 +125,8 @@ class BarChartWidget(_ChartBase):
             for i, (label, val) in enumerate(self._data):
                 bar_h = int((val / max_val) * (h - 20))
                 colour = self._bar_colours[i % len(self._bar_colours)]
-                painter.fillRect(x, bottom - bar_h, bar_w, bar_h, colour)
-                painter.setPen("#8B949E")
+                painter.fillRect(x, bottom - bar_h, bar_w, bar_h, QColor(colour))
+                painter.setPen(QColor("#8B949E"))
                 font = QFont()
                 font.setPointSize(7)
                 painter.setFont(font)
@@ -181,17 +181,17 @@ class LineChartWidget(_ChartBase):
 
         ys = [top + h - int((v / max_val) * h) for _, v in self._points]
 
-        pen = QPen(self._line_colour)
+        pen = QPen(QColor(self._line_colour))
         pen.setWidth(2)
         painter.setPen(pen)
         for i in range(1, len(xs)):
             painter.drawLine(xs[i - 1], ys[i - 1], xs[i], ys[i])
 
-        painter.setBrush(self._line_colour)
+        painter.setBrush(QColor(self._line_colour))
         for x, y in zip(xs, ys):
             painter.drawEllipse(x - 3, y - 3, 6, 6)
 
-        painter.setPen("#484F58")
+        painter.setPen(QColor("#484F58"))
         font = QFont()
         font.setPointSize(7)
         painter.setFont(font)
@@ -226,7 +226,7 @@ class PieChartWidget(_ChartBase):
         for i, (label, val) in enumerate(self._data):
             span = int(-360 * 16 * val / total)
             colour = self.PIE_COLOURS[i % len(self.PIE_COLOURS)]
-            painter.setBrush(colour)
+            painter.setBrush(QColor(colour))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawPie(cx - radius, cy - radius, radius * 2, radius * 2, start_angle, span)
             start_angle += span
@@ -239,9 +239,9 @@ class PieChartWidget(_ChartBase):
         painter.setFont(font)
         for i, (label, val) in enumerate(self._data):
             colour = self.PIE_COLOURS[i % len(self.PIE_COLOURS)]
-            painter.fillRect(lx, ly, 10, 10, colour)
+            painter.fillRect(lx, ly, 10, 10, QColor(colour))
             pct = val / total * 100
-            painter.setPen("#C9D1D9")
+            painter.setPen(QColor("#C9D1D9"))
             painter.drawText(lx + 14, ly + 10, f"{label} ({int(val)}, {pct:.0f}%)")
             ly += 18
 

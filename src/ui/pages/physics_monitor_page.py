@@ -308,18 +308,6 @@ class PhysicsMonitorPage(QWidget):
         layout.addWidget(self._btn_pump_on)
         layout.addWidget(self._btn_pump_off)
 
-        layout.addWidget(QLabel("RPM target"))
-        self._rpm_slider = QSlider(Qt.Orientation.Horizontal)
-        self._rpm_slider.setRange(int(self._phys_config.pump_rpm_min_running), int(self._phys_config.pump_rpm_max))
-        self._rpm_slider.setValue(int(self._phys_config.pump_rpm_nominal))
-        self._rpm_slider.setFixedWidth(130)
-        self._rpm_slider.setEnabled(False)
-        self._rpm_slider.valueChanged.connect(self._on_rpm_changed)
-        layout.addWidget(self._rpm_slider)
-        self._rpm_label = QLabel(f"{int(self._phys_config.pump_rpm_nominal)} RPM")
-        self._rpm_label.setStyleSheet("color: #58A6FF; font-weight: 700;")
-        layout.addWidget(self._rpm_label)
-
         self._scenario_combo = QComboBox()
         self._scenario_combo.addItem("Training scenario…", "")
         self._scenario_combo.addItem("Pressure spike", "pressure_spike")
@@ -577,7 +565,6 @@ class PhysicsMonitorPage(QWidget):
         self._btn_pump_on.setEnabled(enabled)
         self._btn_pump_off.setEnabled(enabled)
         self._valve_slider.setEnabled(enabled)
-        self._rpm_slider.setEnabled(enabled)
         self._scenario_combo.setEnabled(enabled)
         self._btn_trigger_scenario.setEnabled(enabled)
 
@@ -587,12 +574,6 @@ class PhysicsMonitorPage(QWidget):
         self._valve_pct_label.setText(f"{value} %")
         if self._runner:
             self._runner.set_valve(pct)
-
-    def _on_rpm_changed(self, value: int) -> None:
-        """Set the pump's explicit target; actual RPM ramps to this value."""
-        self._rpm_label.setText(f"{value} RPM")
-        if self._runner:
-            self._runner.set_pump_rpm(float(value))
 
     def _on_trigger_scenario(self) -> None:
         """Queue the selected safe, in-memory anomaly training scenario."""
@@ -670,7 +651,9 @@ class PhysicsMonitorPage(QWidget):
         lvl_colour = "#3FB950" if lvl_pct > 0.3 else (
             "#D29922" if lvl_pct > 0.1 else "#F85149"
         )
-        self._cards["tank"].set_value(f"{lvl:.1f}")
+        # A 0.1 m³ display rounded out normal per-tick water balance and
+        # made a changing tank look static.  Preserve useful process detail.
+        self._cards["tank"].set_value(f"{lvl:.2f}")
         self._cards["tank"].set_accent(lvl_colour)
         self._cards["tank"].set_warning(lvl_pct <= 0.1)
 

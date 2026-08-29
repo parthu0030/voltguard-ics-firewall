@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from src.database.db_manager import DatabaseManager
+from src.logger import get_logger
 from src.models.app_models import (
     Alert,
     AlertSeverity,
@@ -34,6 +35,8 @@ from src.models.app_models import (
 )
 from src.models.security_event import SecurityEvent
 from src.physics.system_state import SystemState
+
+_log = get_logger(__name__)
 
 
 class _DatabaseService:
@@ -67,7 +70,11 @@ class _DatabaseService:
             self._db.initialize()
             self._initialized = True
             return True
-        except sqlite3.Error:
+        except sqlite3.Error as exc:
+            # Retain the actual SQLite error in the application log.  The UI
+            # intentionally presents a concise startup dialog, but operators
+            # need the database-level cause to recover a damaged WAL/database.
+            _log.error("Database initialisation failed for %s: %s", self.db_path, exc)
             return False
 
     def close(self) -> None:
@@ -585,6 +592,46 @@ class _DatabaseService:
         params.extend([limit, offset])
 
         cursor = self._db.connection.execute(query, tuple(params))
+        return [self._row_to_security_event(row) for row in cursor.fetchall()]
+
+    def get_security_events(
+        self,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        limit: int = 500,
+        severity: Optional[str] = None,
+        final_action: Optional[str] = None,
+        protocol: Optional[str] = None,
+        function_code: Optional[int] = None,
+        event_type: Optional[str] = None,
+    ) -> list[SecurityEvent]:
+        """Return real security events with all supplied filters applied.
+
+        This is the canonical query for UI analytics and reports.  Keeping
+        the time predicates in the database prevents a recent-events cap
+        from silently mixing data outside the selected report period.
+        """
+        conditions: list[str] = []
+        params: list[Any] = []
+        for column, value in (("timestamp >=", start_time), ("timestamp <=", end_time)):
+            if value:
+                conditions.append(f"{column} ?")
+                params.append(value)
+        if severity and severity != "All":
+            conditions.append("severity = ?"); params.append(severity.upper())
+        if final_action and final_action != "All":
+            conditions.append("final_action = ?"); params.append(final_action.upper())
+        if protocol and protocol != "All":
+            conditions.append("protocol = ?"); params.append(protocol)
+        if function_code is not None:
+            conditions.append("function_code = ?"); params.append(function_code)
+        if event_type and event_type != "All":
+            conditions.append("event_type = ?"); params.append(event_type)
+        where = " WHERE " + " AND ".join(conditions) if conditions else ""
+        cursor = self._db.connection.execute(
+            "SELECT * FROM security_events" + where + " ORDER BY id DESC LIMIT ?;",
+            (*params, limit),
+        )
         return [self._row_to_security_event(row) for row in cursor.fetchall()]
 
     def acknowledge_security_event(self, event_id: int) -> bool:

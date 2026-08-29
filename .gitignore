@@ -24,6 +24,10 @@ ENV/
 *.db
 *.sqlite
 *.sqlite3
+# SQLite WAL mode creates these mutable sidecars at runtime.  They must not
+# be versioned: a stale/corrupt WAL can prevent the main database opening.
+*.db-wal
+*.db-shm
 
 # ── Logs (generated at runtime) ─────────────────────────────────────────────
 logs/*.log

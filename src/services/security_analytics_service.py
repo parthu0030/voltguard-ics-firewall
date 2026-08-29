@@ -117,6 +117,8 @@ class SecurityAnalyticsService:
             tw = time_window.lower().strip()
             if tw == "1h" or tw == "1hour" or tw == "hour":
                 return _iso_from_relative(hours=1), None
+            elif tw == "6h" or tw == "6hours":
+                return _iso_from_relative(hours=6), None
             elif tw == "24h" or tw == "24hours" or tw == "day" or tw == "1d":
                 return _iso_from_relative(hours=24), None
             elif tw == "7d" or tw == "7days" or tw == "week":

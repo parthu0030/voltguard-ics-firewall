@@ -80,11 +80,9 @@ class CommandType:
 
     ``SET_PUMP``    — 1.0 = ON, 0.0 = OFF
     ``SET_VALVE``   — 0.0 (fully closed) to 1.0 (fully open)
-    ``SET_PUMP_RPM``— target RPM (clamped to [0, pump_rpm_max])
     """
     SET_PUMP: str = "SET_PUMP"
     SET_VALVE: str = "SET_VALVE"
-    SET_PUMP_RPM: str = "SET_PUMP_RPM"
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +122,6 @@ class WaterSystemEngine(BasePhysicsEngine):
         self._state: SystemState = self._make_initial_state()
         self._pending_commands: list[tuple[str, float]] = []
         self._pending_anomaly: Optional[str] = None
-        self._pump_rpm_setpoint: float = config.pump_rpm_nominal
         self._valve_target: float = 0.0
         self._lock: Lock = Lock()
         self._tick_count: int = 0
@@ -232,7 +229,6 @@ class WaterSystemEngine(BasePhysicsEngine):
             self._state = self._make_initial_state()
             self._pending_commands.clear()
             self._pending_anomaly = None
-            self._pump_rpm_setpoint = self._config.pump_rpm_nominal
             self._valve_target = 0.0
             self._tick_count = 0
         _log.info("WaterSystemEngine reset to initial state.")
@@ -250,7 +246,6 @@ class WaterSystemEngine(BasePhysicsEngine):
         Supported command types (use ``CommandType.*`` constants):
           - ``SET_PUMP``    — 1.0 turns pump ON, 0.0 turns it OFF.
           - ``SET_VALVE``   — Sets valve target position 0.0–1.0.
-          - ``SET_PUMP_RPM``— Sets a specific target RPM (pump must be ON).
 
         Args:
             cmd_type: One of the ``CommandType`` string constants.
@@ -259,7 +254,7 @@ class WaterSystemEngine(BasePhysicsEngine):
         Raises:
             PhysicsError: If ``cmd_type`` is not recognised.
         """
-        valid_types = {CommandType.SET_PUMP, CommandType.SET_VALVE, CommandType.SET_PUMP_RPM}
+        valid_types = {CommandType.SET_PUMP, CommandType.SET_VALVE}
         if cmd_type not in valid_types:
             raise PhysicsError(
                 f"Unknown command type: '{cmd_type}'",
@@ -366,8 +361,10 @@ class WaterSystemEngine(BasePhysicsEngine):
         """
         Calculate the new pump RPM for the next simulation tick.
 
-        When the pump is ON, RPM ramps up toward the explicit operator
-        setpoint (or configured nominal setpoint) at
+        When the pump is ON, a demand controller derives an operating target
+        from the *actual* valve opening.  This represents increasing
+        hydraulic demand as the downstream path opens; it is not a manual
+        RPM setpoint.  RPM ramps toward that target at
         ``pump_ramp_rate_rpm_per_sec``.  When OFF, it decays toward 0
         at ``pump_decay_rate_rpm_per_sec``.
 
@@ -380,10 +377,18 @@ class WaterSystemEngine(BasePhysicsEngine):
         """
         cfg = self._config
         if state.pump_on:
-            # Rated maximum is a limit, not the default operating target.
-            target_rpm = min(self._pump_rpm_setpoint, cfg.pump_rpm_max)
-            delta = cfg.pump_ramp_rate_rpm_per_sec * dt
-            new_rpm = min(state.pump_rpm + delta, target_rpm)
+            # Equal-percentage valve behaviour gives finer low-demand
+            # control than a linear mapping.  The valve actuator state,
+            # rather than its requested target, is authoritative here.
+            demand = max(0.0, min(1.0, state.valve_position)) ** 0.7
+            target_rpm = min(cfg.pump_rpm_nominal * demand, cfg.pump_rpm_max)
+            ramp = cfg.pump_ramp_rate_rpm_per_sec * dt
+            if state.pump_rpm < target_rpm:
+                new_rpm = min(state.pump_rpm + ramp, target_rpm)
+            else:
+                # Closing the valve unloads the pump; use a controlled
+                # deceleration instead of an implausible instantaneous drop.
+                new_rpm = max(state.pump_rpm - cfg.pump_decay_rate_rpm_per_sec * dt, target_rpm)
         else:
             # Decay toward 0 — pump coasting down.
             delta = cfg.pump_decay_rate_rpm_per_sec * dt
@@ -615,15 +620,6 @@ class WaterSystemEngine(BasePhysicsEngine):
                 target = max(0.0, min(1.0, value))
                 self._valve_target = target
                 _log.debug("Valve target set to %.3f", target)
-
-            elif cmd_type == CommandType.SET_PUMP_RPM:
-                # Clamp to 0–max; pump must be ON for this to take effect.
-                if self._state.pump_on:
-                    target_rpm = max(0.0, min(value, self._config.pump_rpm_max))
-                    self._pump_rpm_setpoint = target_rpm
-                    _log.debug("Pump RPM setpoint set to %.0f", target_rpm)
-                else:
-                    _log.debug("SET_PUMP_RPM ignored — pump is OFF")
 
         self._pending_commands.clear()
 

@@ -308,11 +308,6 @@ class SimulationRunner(QObject):
         _log.debug("set_valve(%.3f)", position)
         return sent
 
-    def set_pump_rpm(self, rpm: float) -> bool:
-        """Set a bounded pump speed target; the engine ramps to it."""
-        from src.physics.water_system_engine import CommandType
-        return self.send_command(CommandType.SET_PUMP_RPM, rpm)
-
     def trigger_anomaly(self, scenario: str) -> bool:
         """Queue a safe physics-training scenario while the simulation runs."""
         if not self._is_running or not self._thread.isRunning():

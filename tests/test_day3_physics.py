@@ -316,6 +316,7 @@ class TestPressureSimulation(unittest.TestCase):
 
     def test_full_update_pump_on_raises_pressure_over_time(self) -> None:
         eng = _engine()
+        eng.apply_command(CommandType.SET_VALVE, 1.0)
         eng.apply_command(CommandType.SET_PUMP, 1.0)
         initial_p = eng.update_state().pressure_bar
         for _ in range(5):
@@ -504,7 +505,7 @@ class TestPumpSpeed(unittest.TestCase):
 
     def test_pump_on_rpm_increases(self) -> None:
         eng = _engine()
-        state = SystemState(pump_on=True, pump_rpm=0.0)
+        state = SystemState(pump_on=True, pump_rpm=0.0, valve_position=0.5)
         new_rpm = eng.simulate_pump_speed(state, dt=1.0)
         self.assertGreater(new_rpm, 0.0)
 
@@ -618,8 +619,10 @@ class TestPumpBehaviour(unittest.TestCase):
 
     def test_pump_on_increases_rpm(self) -> None:
         eng = _engine()
+        eng.apply_command(CommandType.SET_VALVE, 1.0)
         eng.apply_command(CommandType.SET_PUMP, 1.0)
-        state = eng.update_state()
+        for _ in range(20):
+            state = eng.update_state()
         self.assertGreater(state.pump_rpm, 0.0)
 
     def test_pump_off_flow_goes_to_zero(self) -> None:
@@ -638,23 +641,28 @@ class TestPumpBehaviour(unittest.TestCase):
         with self.assertRaises(PhysicsError):
             eng.apply_command("INVALID_CMD", 1.0)
 
-    def test_set_pump_rpm_direct_command(self) -> None:
+    def test_rpm_increases_with_valve_demand(self) -> None:
         eng = _engine()
-        eng._state.pump_on = True
-        eng.apply_command(CommandType.SET_PUMP_RPM, 1800.0)
-        eng.update_state()
-        self.assertAlmostEqual(
-            eng.get_system_state().pump_rpm, 1800.0, delta=400.0
-        )
+        eng.apply_command(CommandType.SET_PUMP, 1.0)
+        eng.apply_command(CommandType.SET_VALVE, 0.25)
+        for _ in range(20):
+            low = eng.update_state()
+        eng.apply_command(CommandType.SET_VALVE, 1.0)
+        for _ in range(20):
+            high = eng.update_state()
+        self.assertGreater(high.pump_rpm, low.pump_rpm)
+        self.assertGreater(high.flow_lps, low.flow_lps)
 
-    def test_set_pump_rpm_ignored_when_pump_off(self) -> None:
+    def test_rpm_ramps_down_when_valve_closes(self) -> None:
         eng = _engine()
-        eng._state.pump_on = False
-        eng._state.pump_rpm = 0.0
-        eng.apply_command(CommandType.SET_PUMP_RPM, 3000.0)
-        eng.update_state()
-        # RPM should stay at 0 since pump is OFF.
-        self.assertEqual(eng.get_system_state().pump_rpm, 0.0)
+        eng.apply_command(CommandType.SET_PUMP, 1.0)
+        eng.apply_command(CommandType.SET_VALVE, 1.0)
+        for _ in range(25):
+            open_state = eng.update_state()
+        eng.apply_command(CommandType.SET_VALVE, 0.0)
+        closed_state = eng.update_state()
+        self.assertLess(closed_state.pump_rpm, open_state.pump_rpm)
+        self.assertGreater(closed_state.pump_rpm, 0.0)  # controlled ramp, not a jump
 
 
 # ===========================================================================
