@@ -75,3 +75,5 @@ htmlcov/
 *.bak
 *.orig
 .voltguard_write_test
+__pycache__/
+*.pyc
