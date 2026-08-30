@@ -1,103 +1,104 @@
-"""
-VoltGuard — Reports Page
-==========================
-Placeholder page for report generation and export functionality.
-
-Reports will allow SCADA operators and security analysts to export
-incident summaries, packet logs, and physics violation records in
-PDF and CSV formats for regulatory compliance and post-incident review.
-
-Implementation is scheduled for Week 4 milestones.
-"""
-
+"""Operational security reports built from VoltGuard's persisted telemetry."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from PyQt6.QtWidgets import QComboBox, QFileDialog, QHBoxLayout, QLabel, QPushButton, QPlainTextEdit, QVBoxLayout, QWidget
+from html import escape
+from typing import Iterable
+from PyQt6.QtWidgets import QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 from src.services.database_service import database_service
-from src.services.security_analytics_service import SecurityAnalyticsService
+from src.services.reporting_service import OperationalReport, ReportingService
+from src.ui.widgets.stat_card import StatCard
 
 
 class ReportsPage(QWidget):
-    """
-    Reports placeholder page.
-
-    Will provide one-click PDF and CSV export of incident logs,
-    alert history, and physics simulation summaries.
-    """
-
+    """Visual, fresh, database-backed operational reporting view."""
     PAGE_TITLE = "Reports"
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._analytics = SecurityAnalyticsService()
-        self._build_ui()
-        self.generate()
+        self._service, self._current_report = ReportingService(), None
+        self._build_ui(); self.generate()
 
     def _build_ui(self) -> None:
-        """Construct a current operational report from persisted data."""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 28, 28, 28)
-        title = QLabel("📋  Operational Report")
-        title.setStyleSheet("font-size:22px;font-weight:700;color:#E6EDF3")
-        layout.addWidget(title)
-        controls = QHBoxLayout(); self._period = QComboBox(); self._period.addItems(["1h", "6h", "24h", "7d", "30d"])
-        controls.addWidget(QLabel("Period")); controls.addWidget(self._period)
-        generate = QPushButton("Generate report"); generate.clicked.connect(self.generate); controls.addWidget(generate); controls.addStretch(); layout.addLayout(controls)
-        download = QPushButton("Download PDF Report"); download.clicked.connect(self.download_pdf); controls.addWidget(download)
-        self._report = QPlainTextEdit(); self._report.setReadOnly(True); self._report.setStyleSheet("background:#161B22;color:#C9D1D9;font-family:monospace;")
-        layout.addWidget(self._report, 1)
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.Shape.NoFrame); root.addWidget(scroll)
+        content = QWidget(); scroll.setWidget(content)
+        layout = QVBoxLayout(content); layout.setContentsMargins(28, 28, 28, 28); layout.setSpacing(12)
+        title = QLabel("📋  Operational Security Report"); title.setStyleSheet("font-size:22px;font-weight:700;color:#E6EDF3"); layout.addWidget(title)
+        self._status = QLabel("Generating current report…"); self._status.setStyleSheet("color:#8B949E;font-size:12px;"); layout.addWidget(self._status)
+        controls = QHBoxLayout(); controls.addWidget(QLabel("Period"))
+        self._period = QComboBox(); self._period.addItems(["1h", "6h", "24h", "7d", "30d"]); self._period.currentTextChanged.connect(self.generate); controls.addWidget(self._period)
+        button = QPushButton("Generate Report"); button.clicked.connect(self.generate); controls.addWidget(button)
+        button = QPushButton("Download PDF Report"); button.clicked.connect(self.download_pdf); controls.addWidget(button); controls.addStretch(); layout.addLayout(controls)
+        layout.addWidget(self._section("Report Overview")); cards = QGridLayout(); cards.setSpacing(14)
+        self._cards = {"packets": StatCard("TOTAL PACKETS", "◈", accent_colour="#58A6FF"), "allow": StatCard("ALLOWED", "✓", accent_colour="#3FB950"), "alert": StatCard("ALERTS", "!", accent_colour="#F0883E"), "block": StatCard("BLOCKED", "×", accent_colour="#F85149")}
+        for i, card in enumerate(self._cards.values()): cards.addWidget(card, 0, i)
+        layout.addLayout(cards)
+        layout.addWidget(self._section("Risk Summary")); self._risk = self._panel(); layout.addWidget(self._risk)
+        layout.addWidget(self._section("Protocol & Modbus")); tables = QGridLayout(); tables.setSpacing(14)
+        self._protocol_table = self._table(["Protocol", "Packets", "Share"]); self._modbus_table = self._table(["Function", "Name", "Count", "Decision", "Avg. Risk"])
+        tables.addWidget(self._protocol_table, 0, 0); tables.addWidget(self._modbus_table, 0, 1); layout.addLayout(tables)
+        layout.addWidget(self._section("Physical System Summary")); self._physics_table = self._table(["Metric", "Minimum", "Maximum", "Average", "Latest"]); layout.addWidget(self._physics_table)
+        self._physics_note = QLabel(); self._physics_note.setStyleSheet("color:#8B949E;padding:4px;"); layout.addWidget(self._physics_note)
+        layout.addWidget(self._section("Major Incidents")); self._incident_table = self._table(["Timestamp", "Source", "Destination", "Protocol", "Function", "Risk", "Severity", "Decision", "Policy", "Reason"]); layout.addWidget(self._incident_table)
+        layout.addWidget(self._section("Cyber-Physical Correlation")); self._correlation_table = self._table(["Network activity", "Decision / Risk", "Physical response"]); layout.addWidget(self._correlation_table)
+        layout.addWidget(self._section("Recommendations")); self._recommendations = self._panel(); self._recommendations.setWordWrap(True); layout.addWidget(self._recommendations); layout.addStretch()
+
+    @staticmethod
+    def _section(text: str) -> QLabel:
+        label = QLabel(text.upper()); label.setStyleSheet("color:#E6EDF3;font-size:14px;font-weight:700;margin-top:12px;"); return label
+
+    @staticmethod
+    def _panel() -> QLabel:
+        label = QLabel(); label.setStyleSheet("background:#161B22;border:1px solid #30363D;border-radius:10px;color:#C9D1D9;padding:14px;font-size:13px;"); return label
+
+    @staticmethod
+    def _table(headers: list[str]) -> QTableWidget:
+        table = QTableWidget(0, len(headers)); table.setHorizontalHeaderLabels(headers); table.verticalHeader().setVisible(False); table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); table.setAlternatingRowColors(True); table.setMinimumHeight(150); table.horizontalHeader().setStretchLastSection(True)
+        table.setStyleSheet("QTableWidget{background:#0D1117;color:#C9D1D9;gridline-color:#21262D;border:1px solid #30363D;border-radius:8px;font-size:12px}QHeaderView::section{background:#161B22;color:#8B949E;font-weight:600;border:none;border-bottom:1px solid #30363D;padding:7px}")
+        return table
+
+    @staticmethod
+    def _populate(table: QTableWidget, rows: Iterable[Iterable[str]]) -> None:
+        materialized = list(rows); table.setRowCount(len(materialized))
+        for row_index, values in enumerate(materialized):
+            for column, value in enumerate(values): table.setItem(row_index, column, QTableWidgetItem(str(value)))
 
     def generate(self) -> None:
         try:
-            if not database_service.is_ready:
-                database_service.initialize()
-            start, end = self._analytics.resolve_time_window(self._period.currentText())
-            summary = self._analytics.get_summary_metrics(start_time=start, end_time=end)
-            events = database_service.get_security_events(start_time=start, end_time=end, limit=500)
-            readings = database_service.get_physics_readings(start, end)
-            anomalies = [event for event in events if event.event_type == "PHYSICS_VIOLATION"]
-            incidents = sorted(events, key=lambda event: event.risk_score, reverse=True)[:10]
-            protocol_stats = database_service.get_protocol_distribution(start, end)
-            modbus_stats = database_service.get_modbus_function_distribution(start, end)
-            correlations = [event for event in events if event.event_type == "PHYSICS_VIOLATION" or event.function_code is not None][-10:]
-            recommendations = ["Review blocked commands and validate controller authorization."] if any(e.final_action == "BLOCK" for e in events) else ["No blocked command in this period; continue monitoring."]
-            if anomalies:
-                recommendations.append("Investigate physics anomalies and confirm valve/pump interlocks.")
-            lines = ["VoltGuard — Physics-Aware ICS/SCADA Security Report", f"Generated: {datetime.now(timezone.utc).isoformat(timespec='seconds')}", f"Selected period: {self._period.currentText()} ({start or 'beginning'} to {end or 'now'})", "", "Security summary", f"Packets: {summary.total_packets}", f"Decisions: ALLOW {summary.total_allowed_events} | ALERT {summary.total_alert_actions} | BLOCK {summary.total_blocked_events}", f"High-risk events: {summary.high_risk_events + summary.critical_events}", f"Risk: average {summary.average_risk_score:.1f}, max {summary.maximum_risk_score}", f"Physics: {len(readings)} readings | {len(anomalies)} anomalies", "", f"Protocol statistics: {protocol_stats or 'None recorded'}", f"Modbus statistics: {modbus_stats or 'None recorded'}"]
-            if readings:
-                latest = readings[-1]
-                lines += ["", "Physical system summary", "pressure={pressure_bar:.2f} bar | flow={flow_lps:.3f} L/s | temperature={temperature_celsius:.1f} C".format(**latest), "pump={pump_on} | rpm={pump_rpm:.0f} | valve={valve_position:.0%} | tank={tank_level_m3:.2f} m3".format(**latest)]
-            lines += ["", "Major incidents:"]
-            lines += [f"- {event.timestamp} | {event.final_action} | risk {event.risk_score} | {event.reason}" for event in incidents] or ["- None recorded"]
-            lines += ["", "Cyber-physical correlations:"]
-            lines += [f"- {event.timestamp} | {event.event_id} | {event.protocol} | FC {event.function_code if event.function_code is not None else 'n/a'} | {event.event_type} | {event.final_action}" for event in correlations] or ["- No correlated security or physics events recorded"]
-            lines += ["", "Recommendations:"] + [f"- {item}" for item in recommendations]
-            self._report.setPlainText("\n".join(lines))
-        except Exception as exc:
-            self._report.setPlainText(f"Report generation failed: {exc}")
+            if not database_service.is_ready and not database_service.initialize(): raise RuntimeError("database initialization failed")
+            self._current_report = self._service.generate(self._period.currentText()); self._render(self._current_report)
+        except Exception as exc: self._status.setText(f"Report generation failed: {exc}")
+
+    def _render(self, report: OperationalReport) -> None:
+        s = report.summary
+        for key, value in (("packets", s.total_packets), ("allow", s.total_allowed_events), ("alert", s.total_alert_actions), ("block", s.total_blocked_events)): self._cards[key].set_value(str(value))
+        levels = s.events_by_severity
+        self._risk.setText(f"Average Risk  <b>{s.average_risk_score:.1f}</b> &nbsp;&nbsp; Maximum Risk  <b>{s.maximum_risk_score}</b> &nbsp;&nbsp; High / Critical  <b>{s.high_risk_events + s.critical_events}</b><br><span style='color:#8B949E'>SAFE / LOW: {levels.get('LOW', 0)} &nbsp; MEDIUM: {levels.get('MEDIUM', 0)} &nbsp; HIGH: {levels.get('HIGH', 0)} &nbsp; CRITICAL: {levels.get('CRITICAL', 0)}</span>")
+        total = sum(report.protocol_statistics.values()); protocols = [(name, count, f"{count / total * 100:.1f}%") for name, count in report.protocol_statistics.items()] or [("No protocols recorded", "—", "—")]; self._populate(self._protocol_table, protocols)
+        modbus = [(f"0x{r['code']:02X}", r['name'], r['count'], r['decision'], f"{r['average_risk']:.1f}") for r in report.modbus_statistics] or [("No Modbus functions recorded", "—", "—", "—", "—")]; self._populate(self._modbus_table, modbus)
+        physics = [(r['label'], *[f"{r[key]:.2f} {r['unit']}" for key in ('minimum', 'maximum', 'average', 'latest')]) for r in report.physics_statistics] or [("No persisted physics readings", "—", "—", "—", "—")]; self._populate(self._physics_table, physics)
+        self._physics_note.setText(f"{report.physics_reading_count} persisted physical samples · " + (f"{len(report.anomalies)} recorded anomalies." if report.anomalies else "No physical anomalies detected during this period."))
+        incidents = [(e.timestamp, e.source_ip, e.destination_ip, e.protocol, e.function_name or (f"0x{e.function_code:02X}" if e.function_code is not None else "—"), e.risk_score, e.severity.value, e.final_action, e.matched_policy_name or "—", e.reason) for e in report.incidents] or [("No major incidents recorded during this period.", "", "", "", "", "", "", "", "", "")]; self._populate(self._incident_table, incidents)
+        correlations = [(f"{p['network'].timestamp} · {p['network'].protocol} · {p['network'].function_name or 'Modbus activity'}", f"{p['network'].final_action} · risk {p['network'].risk_score}", p['physics'].reason) for p in report.correlations] or [("No confirmed cyber-physical correlations recorded during this period.", "", "")]; self._populate(self._correlation_table, correlations)
+        self._recommendations.setText("<br>".join(f"• {escape(item)}" for item in report.recommendations)); self._status.setText(f"Selected period: {report.period} · Generated {report.generated_at} · current persisted data")
 
     def download_pdf(self) -> None:
-        """Create a real PDF containing the currently selected report data."""
+        if not self._current_report: self.generate()
+        report = self._current_report
+        if not report: return
         path, _ = QFileDialog.getSaveFileName(self, "Save VoltGuard report", "voltguard-report.pdf", "PDF files (*.pdf)")
-        if not path:
-            return
-        if not path.lower().endswith(".pdf"):
-            path += ".pdf"
+        if not path: return
+        if not path.lower().endswith(".pdf"): path += ".pdf"
         try:
-            from reportlab.lib.colors import HexColor
             from reportlab.lib.pagesizes import A4
-            from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+            from reportlab.lib.styles import getSampleStyleSheet
             from reportlab.lib.units import mm
             from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
-            styles = getSampleStyleSheet()
-            title = ParagraphStyle("voltguard-title", parent=styles["Title"], textColor=HexColor("#15395B"), fontSize=18, spaceAfter=12)
-            body = ParagraphStyle("voltguard-body", parent=styles["BodyText"], fontSize=9, leading=13, spaceAfter=5)
-            story = [Paragraph("VoltGuard - Physics-Aware ICS/SCADA Security Report", title)]
-            for line in self._report.toPlainText().splitlines():
-                story.append(Spacer(1, 2) if not line else Paragraph(line.replace("&", "&amp;").replace("<", "&lt;"), body))
-            SimpleDocTemplate(path, pagesize=A4, leftMargin=18*mm, rightMargin=18*mm, topMargin=18*mm, bottomMargin=18*mm).build(story)
-            self._report.appendPlainText(f"\nPDF saved: {path}")
-        except ImportError:
-            self._report.appendPlainText("\nPDF export unavailable: install dependencies with `python3 -m pip install -r requirements.txt`.")
-        except Exception as exc:
-            self._report.appendPlainText(f"\nPDF export failed: {exc}")
+            styles, story = getSampleStyleSheet(), []
+            def add(value: str, style: str = "BodyText") -> None: story.append(Paragraph(escape(value), styles[style]))
+            s = report.summary; add("VoltGuard — Operational Security Report", "Title"); add(f"Period: {report.period} | Generated: {report.generated_at}"); story.append(Spacer(1, 8)); add("Security Summary", "Heading2"); add(f"Packets: {s.total_packets}; ALLOW: {s.total_allowed_events}; ALERT: {s.total_alert_actions}; BLOCK: {s.total_blocked_events}; Average risk: {s.average_risk_score:.1f}; Maximum risk: {s.maximum_risk_score}")
+            for heading, values, empty in (("Protocol Statistics", [f"{k}: {v}" for k, v in report.protocol_statistics.items()], "None recorded"), ("Modbus Statistics", [f"0x{r['code']:02X} {r['name']}: {r['count']} ({r['decision']}, average risk {r['average_risk']:.1f})" for r in report.modbus_statistics], "None recorded"), ("Physics Statistics", [f"{r['label']}: min {r['minimum']:.2f}, max {r['maximum']:.2f}, average {r['average']:.2f}, latest {r['latest']:.2f} {r['unit']}" for r in report.physics_statistics], "No persisted readings"), ("Major Incidents", [f"{e.timestamp}: {e.final_action}, risk {e.risk_score}, {e.reason}" for e in report.incidents], "No major incidents recorded during this period."), ("Cyber-Physical Correlations", [f"{p['network'].timestamp}: {p['network'].reason} → {p['physics'].reason}" for p in report.correlations], "No confirmed cyber-physical correlations recorded during this period."), ("Recommendations", report.recommendations, "No recommendations")):
+                add(heading, "Heading2"); [add(value) for value in values] or add(empty)
+            SimpleDocTemplate(path, pagesize=A4, leftMargin=16*mm, rightMargin=16*mm, topMargin=16*mm, bottomMargin=16*mm).build(story); self._status.setText(f"PDF saved: {path}")
+        except ImportError: self._status.setText("PDF export unavailable: install reportlab.")
+        except Exception as exc: self._status.setText(f"PDF export failed: {exc}")
