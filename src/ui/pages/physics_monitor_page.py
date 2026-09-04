@@ -523,6 +523,8 @@ class PhysicsMonitorPage(QWidget):
             )
             self._runner.simulation_error.connect(self._on_sim_error)
             self._runner.physics_violation.connect(self._on_physics_violation)
+            # Display initial engine state on cards immediately
+            self._on_state_updated(self._runner.current_state)
         except Exception as exc:  # noqa: BLE001
             self._subtitle.setText(f"Engine Error: {exc}")
 
@@ -546,14 +548,11 @@ class PhysicsMonitorPage(QWidget):
         """Reset the simulation to initial state."""
         if self._runner:
             self._runner.reset_simulation()
-            # Reset card displays
-            self._cards["pressure"].set_value("0.00")
-            self._cards["flow"].set_value("0.00")
-            self._cards["pump_rpm"].set_value("0")
-            self._cards["pump_status"].set_value("OFF")
-            self._cards["pump_status"].set_accent("#8B949E")
-            self._cards["valve"].set_value("0.00")
-            self._tick_label.setText("Ticks: 0")
+            self._valve_slider.blockSignals(True)
+            self._valve_slider.setValue(0)
+            self._valve_slider.blockSignals(False)
+            self._valve_pct_label.setText("0 %")
+            self._on_state_updated(self._runner.current_state)
 
     def _send_pump(self, on: bool) -> None:
         """Send a pump command to the runner."""
