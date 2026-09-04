@@ -107,25 +107,41 @@ class ReportingService:
         return result
 
     @staticmethod
-    def _correlations(events: list[SecurityEvent], anomalies: list[SecurityEvent]) -> list[dict[str, SecurityEvent]]:
-        """Return only timestamp-backed network/physics pairs within one minute."""
-        network_events = [event for event in events if event not in anomalies and event.function_code is not None and event.final_action in {"ALERT", "BLOCK"}]
+    def _parse_time(ts_str: str) -> Optional[datetime]:
+        """Parse an ISO timestamp string safely with UTC timezone fallback."""
+        if not ts_str:
+            return None
+        try:
+            dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except (ValueError, TypeError):
+            return None
+
+    @classmethod
+    def _correlations(cls, events: list[SecurityEvent], anomalies: list[SecurityEvent]) -> list[dict[str, SecurityEvent]]:
+        """Return timestamp-backed network/physics pairs within 60 seconds of each other."""
+        network_events = [
+            event for event in events
+            if event not in anomalies and event.function_code is not None and event.final_action in {"ALERT", "BLOCK"}
+        ]
         matches: list[dict[str, SecurityEvent]] = []
         for anomaly in anomalies:
-            try:
-                anomaly_time = datetime.fromisoformat(anomaly.timestamp.replace("Z", "+00:00"))
-            except ValueError:
+            anomaly_dt = cls._parse_time(anomaly.timestamp)
+            if anomaly_dt is None:
                 continue
             candidates = []
             for network in network_events:
-                try:
-                    difference = abs((datetime.fromisoformat(network.timestamp.replace("Z", "+00:00")) - anomaly_time).total_seconds())
-                except ValueError:
+                net_dt = cls._parse_time(network.timestamp)
+                if net_dt is None:
                     continue
-                if difference <= 60:
-                    candidates.append((difference, network))
+                diff = abs((net_dt - anomaly_dt).total_seconds())
+                if diff <= 60:
+                    candidates.append((diff, network))
             if candidates:
-                matches.append({"network": min(candidates, key=lambda item: item[0])[1], "physics": anomaly})
+                best_net = min(candidates, key=lambda item: item[0])[1]
+                matches.append({"network": best_net, "physics": anomaly})
         return matches
 
     @staticmethod
@@ -138,3 +154,4 @@ class ReportingService:
         if any(event.final_action == "ALERT" for event in events):
             recommendations.append("Review alert events to determine whether policy tuning is required.")
         return recommendations or ["No security or physical anomalies require action for this period."]
+
